@@ -1,0 +1,75 @@
+信号灯集
+
+semctl
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+int semctl(int semid, int semnum, int cmd, ...);
+功能：对某一个信号灯集进行设置，也可以对其中单个信号量进行设置
+参数：1、semid，通过semget获取
+      2、需要设置第几个信号量
+      3、SETVAL 
+      4、依赖于cmd，需要是一个union semun类型的量
+
+union semun {
+    int              val;    /* Value for SETVAL */
+    struct semid_ds *buf;    /* Buffer for IPC_STAT, IPC_SET */
+    unsigned short  *array;  /* Array for GETALL, SETALL */
+    struct seminfo  *__buf;  /* Buffer for IPC_INFO
+                                           (Linux-specific) */
+           };
+返回值：成功返回非零值，失败返回-1并设置errno
+
+semget
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+int semget(key_t key, int nsems, int semflg);
+功能：打开或者创建一个信号灯集
+参数：1、key值
+      2、创建时有效，该信号灯集有几个信号量
+      3、IPC_CREAT | IPC_EXCL | 0664
+返回值：成功返回0，失败返回-1并设置errno值
+
+semop
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+int semop(int semid, struct sembuf *sops, unsigned nsops);
+功能：对信号量进行操作
+参数：1、semid
+      2、struct sembuf 类型的结构体指针（结构体成员需要一一初始化）
+	 结构体成员如下：
+	  unsigned short sem_num;  /* semaphore number */
+          short          sem_op;   /* semaphore operation */
+          short          sem_flg;  /* operation flags */
+
+      3、0  默认操作
+	 IPC_NOWAIT 非阻塞
+         SEM_UNDO  选项会让内核记录一个与调用进程相关的UNDO记录，
+		   如果该进程崩溃，则根据这个进程的UNDO记录自动恢复相应信号量的计数值
+返回值：成功返回0，失败返回-1并设置errno值
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,182 @@
+条件变量（必须和锁结合使用）
+
+pthread_cond_init
+功能：初始化条件变量
+参数：1、条件取地址
+      2、可填NULL，默认
+
+pthread_cond_wait
+功能：等待条件到达
+参数：条件取地址
+
+pthread_cond_signal
+pthread_cond_broadcast
+功能：发送一个条件  /  给所有等待该条件的线程发送条件
+参数：条件取地址
+
+进程间通信
+七中通信方式：
+
+无名管道
+
+在内核中申请一段64k大小的管道空间，有自己的读端和写端，实现进程间的通信
+
+（只能在具有亲缘关系的进程间通信）
+pipe
+int pipe（int fd[2]）;
+功能：创建无名管道，为数组获取两个文件描述符，fd[0]是读，fd[1]为写
+参数：数组名
+返回值：成功返回0，失败返回-1并设置errno值
+
+有名管道
+mkfifo
+int mkfifo（const char *pathname，mode_t mode）；
+功能：创建有名管道并得到一个管道文件
+参数：1、在某个指定的路径下创建某个管道文件
+      2、权限（最终权限会 & ~umask）
+返回值：成功返回0，失败返回-1并设置errno值
+
+
+
+
+信号
+信号是一种软中断
+
+如何查看信号？
+kill -l 64个信号
+
+不可靠信号：1 - 31 
+当某个进程接收到多个相同信号（在等待窗口），则只会保留一个
+		
+可靠信号：34 - 64
+
+信号的默认功能可大致分为以下五种
+Term   Default action is to terminate the process.
+
+Ign    Default action is to ignore the signal.
+
+Core   Default action is to terminate the process and  dump  core  (see
+              core(5)).
+
+Stop   Default action is to stop the process.
+
+Cont   Default  action  is  to  continue the process if it is currently
+              stopped.
+
+信号的产生
+一、硬件异常
+二、终端相关
+ctrl + c(SIGINT)  ctrl + z(SIGTSTP)  ctrl + \(SIGQUIT)
+给当前的进程组发送
+三、软件事件
+
+
+9(SIGKILL)、19（SIGSTOP）不可以被忽略也不可以被捕获
+
+
+信号的忽略，默认和捕获
+signal
+#include <signal.h>
+typedef void (*sighandler_t)(int);
+sighandler_t signal(int signum, sighandler_t handler);
+功能：向当前进程声明如果接收到某个信号去执行对应的信号处理函数
+参数：1、所需要声明的信号
+      2、SIG_IGN 忽略
+	 SIG_DFL 执行默认的处理函数
+         也可以是自定义的信号函数的函数指针
+返回值：成功返回之前的信号处理函数的函数指针
+
+（如果使用到返回值也就是用到sighanler_t类型，则在编译时需加上 -D_GNU_SOURCE）
+
+如何给指定的进程发送一个信号
+1、kill -信号 进程id
+
+2、kill函数
+#include <sys/types.h>
+#include <signal.h>
+int kill(pid_t pid, int sig);
+功能：注册/发送一个信号给指定的进程
+参数：1、pid > 0 该信号发送给进程id为pid的进程
+	 pid = 0 该信号发送给当前调用的进程的进程组的每一个进程
+	 pid = -1 该信号发送给当前调用的进程有权限发送的每一个进程（除了init）
+         pid < -1 该信号发送给进程组id和pid的绝对值相等进程组中的每一个进程
+
+       If  sig  is 0, then no signal is sent, but error checking is still per‐
+       formed; this can be used to check for the existence of a process ID  or
+       process group ID.
+      （如果信号为0，则该函数可用来检测发送的进程或进程组存在与否）
+
+返回值：成功返回0，失败返回-1并设置errno值
+
+raise
+#include <signal.h>
+int raise(int sig);
+功能：给当前调用的进程或者线程发送一个信号
+参数：信号
+返回值：成功返回0，失败返回非0值
+（注：在单线程进程中等同于kill（getpid（），int sig），在多线程进程中
+等同于pthread_kill（pthread_self()，int sig））
+
+alarm
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+功能：在设置的时间后给自己发送一个SIGALRM信号
+参数：设置的秒数
+返回值：通常返回延时的秒数，如果seconds设置为0，返回0且并不会发送SIGALRM
+
+pause
+#include <unistd.h>
+int pause(void);
+功能：使当前调用进程进入阻塞态并一直等到任意一个信号到达则唤醒
+参数：无
+返回值：如果该信号导致进程结束无返回值，只有当该信号为自己定义的信号处理函数的时候才会返回，返回值为-1；
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+消息队列
+
+共享内存
+
+信号灯集
+
+套接字
+
+
+

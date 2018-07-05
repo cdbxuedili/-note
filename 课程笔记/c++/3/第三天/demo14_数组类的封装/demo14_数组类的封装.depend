@@ -1,0 +1,11 @@
+# depslib dependency file v1.0
+1527753519 source:d:\c++例程\第三天\demo14_数组类的封装\fun.cpp
+	"head.h"
+
+1527753507 d:\c++例程\第三天\demo14_数组类的封装\head.h
+	<cstdio>
+
+1527753522 source:d:\c++例程\第三天\demo14_数组类的封装\main.cpp
+	<iostream>
+	"head.h"
+

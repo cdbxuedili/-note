@@ -1,0 +1,395 @@
+【1】系统移植
+    bootloader    内核   文件系统
+	bootloader作用：
+	   在内核运行之前执行的一小段代码，硬件进行初始化，
+	   引导内核，为内核传参。
+	      内核传参：设备树，bootargs
+          uboot如何引导内核：  bootcmd		 
+
+     uboot和bootloader区别？ 
+       uboot属于bootloader的一种。
+
+
+   	 内核：
+         linux系统最核心的部分
+         中断管理，进程管理，内存管理，设备驱动，网络管理，vfs文件系统(为应用程序提供统一的接口)
+
+	
+	 文件系统：
+	     管理文件，app(c/c++/java/html)
+		 
+	
+    linux文件系统：
+      磁盘文件系统：
+	      ext2/3/4,cramfs,yaffs,jeffs2
+		  
+		  nandflash:cramfs,yaffs,jeffs2
+		  emmc:ext2/3/4
+		  
+		  ramdisk:nandflash  emmc  
+		  
+		如何制作磁盘文件系统？
+		   busybox：包含命令以及工具的集合
+		               ls，cd,gcc,gdb
+					   
+		   busybox----->rootfs------------------->磁盘文件系统			   
+   		                        某种方法打包成   
+		  
+      网络文件系统：
+	       nfs ：共享目录，挂载
+	     
+      特殊文件系统：
+          sysfs,tmpfs,proc
+		  
+		  sysfs:将内核的数据结构及其属性以及他们之间的关联导出到用户空间的方法
+		              kobject           目录
+                      attribute         普通文件
+              sys:
+          tmpfs:tmp
+               
+           proc:和进程有关
+                 创建一个进程，在proc目录创建一个以进程id命名的目录，目录
+                 中包含进程相关的信息.
+				 
+sysfs:
+   sys/class/leds/led0/
+                       read
+					     读/写
+	
+    cls   = class_create();	
+	device  = device_create();
+	device_create_file
+     	
+   linux设备模型？
+    设备            驱动               总线
+    device	     device_driver         bus_type
+
+   
+						 
+   platform总线？
+     驱动                      硬件 
+    platform_driver      	 platform_device
+
+  
+
+  设备：
+     device_attribute
+  bus:
+     bus_attribute
+  class:
+    class_attribute
+  普通文件：
+     kobj_attribute
+	 
+【2】如何移植uboot
+    1、驱动硬件信息
+	   ARCH,SOC,VENDOR,CPU,DRAM,FLASH，参考板或者标准板
+	   
+	   
+	2、移植
+	   1、添加交叉编译器
+	      Makefile
+		外部传参
+		
+	   2、配置uboot
+	      make   orgien_config
+		  
+	   3、make
+	      make    ARCH=arm  CROSS_COMPILE=
+
+【3】uboot启动流程
+    1、初始化异常向量表
+	2、关中断，设置cpu的工作模式，看门狗
+	3、使能I-CHACE,关MMU
+	4、初始化时钟
+	5、初始化内存
+	6、初始化串口
+	7、设置栈，清bss段
+	8、初始化外设（网卡，flash）
+    9、判断是否有按键按下，如果没有执行bootcmd
+	
+【4】内核
+    .config  Kconfig  Makefile
+	Kconfig:生成菜单的文件
+	   mainmenu：主菜单
+	   menu：子菜单
+	   souce：包含下一级菜单
+	   config：选项菜单
+	   depends on:依赖
+	   
+    .config：保存配置信息
+	    CONFIG_TEST=y  
+		
+		
+	Makefile:
+      编译驱动
+      	  
+	
+	
+【5】移植文件系统
+   busybox 
+   
+【6】驱动分层思想
+   led  设备号    
+        设备文件  /dev/led  
+		
+   核心层  为应用程序提供统一的接口
+   设备驱动层:
+
+   led:sysfs
+       led-class.c  
+	   
+	   led.c  
+	      1、为结构体分配空间
+		  2、设置结构体
+		  3、硬件相关操作
+		  4、注册  核心层  
+		    
+		  
+        
+【7】lcd驱动  
+   1、什么是lcd？
+      液晶显示器，液晶特点：在电信号的驱动下，液晶分子
+	  进行旋转，旋转影响透光，因为我们可以在整个液晶面板
+	  的后面使用白光照射（背光）,可以在lcd屏幕上显示各种
+	  颜色。
+	2、lcd的接口
+      TTL,LVDS,EDP,MIPI等
+   	  
+	  TTL:+5V  逻辑1
+	       0v  逻辑0
+		   
+	   SOC的lcd控制器硬件接口是TTL电平，lcd可以接到lcd
+        控制器上，手机，平台一般都是软排线连接。
+		
+	  TTL接口的缺点传输距离不能太远。如果超过1米就不能
+      使用TTL连接，要进行转换。
+	  
+	   
+	  转换方式：
+	      主机（SOC）TTL------>VGA------->LCD屏幕（TTL）
+		  
+       TTL:
+          RGB 数据信号
+		      单通道
+			     单通道6bit   18根
+				     颜色压缩
+					 
+				 单通道8bit   24根
+				 
+			  双通道
+          时钟信号
+          控制信号
+		  
+		 缺点：
+             传输距离比较短，如果长距离传输通过转换芯片
+			 于TTL接口信号电压高、连线多、传输电缆长
+             电路的抗干扰能力比较差，而且容易产生电磁干扰（EMI）。
+			 在实际应用中，TTL接口电路多用来驱动小尺寸（15in以下）
+			 或低分辨率的液晶面板。TTL最高像素时钟只有28MHz。			 
+               		  
+     	 lvds:
+             是一种低压差分信号技术接口,实现了低噪声和低功耗
+			SOC: RGB-->LVDS        LCD:LVDS
+
+		RGB TTL接口信号类型是TTL电平，信号的内容是RGB666或者RGB888还有行场同步和时钟； 
+		LVDS接口信号类型是LVDS信号（低电压差分对），信号的内容是RGB数据还有行场同步和时钟； 
+		MIPI DSI接口信号类型是LVDS信号，信号的内容是视频流数据和控制指令。
+		     节省资源
+			 
+		MIPI(Mobile Industry Processor Interface)是2003年由ARM, Nokia, ST ,TI等公司成立的一个联盟，目的是把手机内部的接口如摄像头、显示屏接口、射频/基带接口等标准化，从而减少手机设计的复杂程度和增加设计灵活性\
+		
+	fs4412RGB接口：
+    VD[23-0]  24根数据线，并行方式传输，速度才足够快
+	HSYNC:水平同步信号
+	VSYNC:垂直同步信号：
+	VCLK:给lcd提供时钟
+	
+	lcd控制器和lcd驱动器
+	 lcd驱动器一般和lcd显示面板集成在一起，本来是分开的，
+	 做面板负责做面板，做lcd驱动器只负责lcd驱动器，譬如：
+	   面板：三星，LG
+	   
+	  集成厂商：面板和驱动器集成在一起lcd屏幕。
+
+    lcd控制器：一般集成在soc的内部，他负责通过数字接口向
+            远端的lcd驱动器提供像素显示的数字信号。
+   			
+	
+   帧缓存/显存：
+       帧缓冲 [1]  （framebuffer）是Linux为显示设备提供的一个接口   
+  	
+	   帧缓存有个地址，是在内存里。我们通过不停的向frame buffer中写入数据，
+	   显示控制器就自动的从frame buffer中取数据并显示出来。全部的图形都共享
+	   内存中同一个帧缓存。	
+		   
+显存：   
+   从内存中挑选一段内存（内核分配，需要程序员调用
+      相关的函数从内存中申请空间作为显存），然后通过
+    配置将lcd控制器和这一段内存连接起来构成一个映射关系
+    一旦这个关系建立之后，lcd控制器自动从显存中
+    读取像素数据传输给lcd驱动器，这个显示过程不需要
+    cpu的参与。
+
+    显示体系建立之后，cpu就不用在关心lcd控制器、
+     驱动器，cpu只关心显存。因为我们只要把显示的
+	 图像的像素数据丢到显存中，硬件就会自动响应，
+	  在lcd屏幕上就可以看到显示的图像.
+
+lcd显示的单位：帧（frame）
+   显示器上一整个图像的内容就是一个帧,整个显示器工作
+   就是一帧一帧在显示，
+
+   电影以每秒24帧的速度在播放图片。
+
+lcd显示一帧图像的过程
+  1.把帧分为多行，然后在把行分为多个像素，然后逐个像素去
+    显示。
+在lcd屏幕上显示像素：
+  lcd驱动器按照从lcd控制器接收到的显示数据，驱动一个像素的
+  液晶分子旋转，让这个像素显示出相应颜色的值
+
+【2】lcd驱动
+  参考代码
+    vi drivers/video/s3c2410fb.c   
+	     分配空间
+	     fbinfo = framebuffer_alloc(sizeof(struct s3c2410fb_info), &pdev->dev);
+     	
+		 设置结构体  
+		 fbinfo->fix.type        = FB_TYPE_PACKED_PIXELS;
+ 903     fbinfo->fix.type_aux        = 0;
+ 904     fbinfo->fix.xpanstep        = 0;
+ 905     fbinfo->fix.ypanstep        = 0;
+ 906     fbinfo->fix.ywrapstep       = 0;
+ 907     fbinfo->fix.accel       = FB_ACCEL_NONE;
+ 908 
+         硬件相关的操作
+         ret = request_irq(irq, s3c2410fb_irq, 0, pdev->name, info);
+		  注册
+		 register_framebuffer   这个函数在fbmem.c 中实现，需要把fbmem.c 编译到内核中，
+		                        随内核一起启动，他的加载函数就会被执行
+								
+								
+fbmem.c 
+
+   1846 static int __init  fbmem_init(void)
+                                29   /dev/fb0
+								
+			注册设备
+        if (register_chrdev(FB_MAJOR,"fb",&fb_fops))
+1852         printk("unable to get major %d for fb devs\n", FB_MAJOR);
+   
+          创建类
+        fb_class = class_create(THIS_MODULE, "graphics");
+   
+   
+    1863 module_init(fbmem_init);								
+								
+		   
+
+ register_framebuffer：
+        创建设备文件
+   fb_info->dev = device_create(fb_class, fb_info->device,                               
+1639                      MKDEV(FB_MAJOR, i), NULL, "fb%d", i);
+
+
+
+  硬件操作：
+     1、配置RGB引脚给lcd控制器
+	 2、lcd控制器给lcd驱动器提供时钟
+	      VCLK = FIMD  SCLK/(CLKVAL+1),
+		  VCLK:lcd控制器给lcd驱动器提供的时钟，时钟的范围不能超过80M
+                在lcd的芯片手册中，lcd的时钟为	40.8----67.2M
+		  VCLK:51.2M
+
+         FIMD SCLK:lcd控制器的时钟
+		          内核已经设置了sclk的时钟为800M,看内核启动的打印信息
+				  
+				  个FIMD可选用两路时钟源，一路是HCLK1，即D1_BUS，第二路是SCLK_LCD，它可由MPLL分流，也可由EPLL分流。具体需要配置时钟相关的寄存器。这里笔者推荐使用SCLK_LCD这一路，且由MPLL过来的时钟源
+				  
+				   Exynos4x12 clocks: sclk_apll = 500000000, sclk_mpll = 800000000  
+          
+                   sclk_epll = 96000000, sclk_vpll = 350000000, arm_clk = 1000000000  
+          
+                   sched_clock: 32 bits at 200 Hz, resolution 5000000ns, wraps every 10737418240000000ns  
+		
+		   
+            VCLK = FIMD  SCLK/(CLKVAL+1),
+            50M  = 800M/CLKVAL+1
+            CLKVAL   = 15	  		
+		   
+	 3、lcd控制器给lcd驱动器发送时序信号
+	 4、将显存的地址和lcd控制器关联在一起
+	 5、开启背光灯
+	 6、设置其他的参数
+	     一行的长度
+		 窗口的大小
+		 
+	HSPW: 水平同步信号的脉宽
+    HBPD:水平同步信号的前肩
+    HFPD: 水平同步信号的后肩
+    VSPW: 垂直同步信号的脉宽
+    VBPD: 垂直同步信号的前肩
+    VFPD: 垂直同步信号的后肩  
+	 
+	一行的通信过程是这样的：lcd控制器先发送一个HSYNC
+    高电平的脉冲，（脉冲的宽度是HSPW）,脉冲告诉驱动器
+    下面的信息是一行的信息，然后开始这一行信息。
+	
+	这一行的信息包含三部分：
+	    HBPD+有效行信息+HFPD
+	 
+	所以：
+         一行总共包含4部分：
+          HSPW+HBPD+行信息+HFPD
+
+    一帧图像其实就是一列，一列图像由多个行组成，
+    每一行都是 HSPW+HBPD+行信息+HFPD。
+	
+	整个帧图像信号分为4部分：
+	    VSPW+VBPD+列信息+VFPD  
+		
+		
+	echo  hello   >/dev/tty1
+  
+   1、为结构体分配空间
+   2、设置结构体  
+      x方向的分辨率
+      y方向的分辨率
+      红/绿/蓝色在rgb占多少位，偏移量
+      一个像素占多少位
+      显存的物理地址和虚拟地址
+      颜色为16bit，调色板
+  3、硬件操作
+      配置gpio给lcd使用
+      从内存中开辟空间给显存使用
+      把显存的地址和lcd控制器关联在一起
+      设置像素的时钟
+      设置时序参数（HSPW 等）
+      窗口的大小 
+      背光灯
+   4、注册  
+   
+    
+  【2】在lcd屏幕上显示一帧图像
+     
+	 write
+	 
+fbmem.c 
+    fb_write
+	    操作显存的虚拟地址
+   	 
+       
+	
+	
+   
+    
+    
+         
+		
+   	 
+	 
+	 
+   	 
+		 
+		  

@@ -1,0 +1,278 @@
+【1】led驱动
+   参考的驱动程序：
+    leds-s3c24xx.c 
+	   加载函数，卸载函数,注册platform_driver  注销platfrom_device
+	  module_platform_driver(s3c24xx_led_driver);  
+
+	  
+	  struct led_classdev   cdev； 描述led设备
+71 static int s3c24xx_led_probe(struct platform_device *dev)
+  struct s3c24xx_led_platdata *pdata = dev->dev.platform_data;	存放私有数据  
+          分配空间            
+     led = kzalloc(sizeof(struct s3c24xx_gpio_led), GFP_KERNEL);
+        设置结构体
+      led->cdev.brightness_set = s3c24xx_led_set;
+ 86     led->cdev.default_trigger = pdata->def_trigger;
+ 87     led->cdev.name = pdata->name;
+ 88     led->cdev.flags |= LED_CORE_SUSPENDRESUME;
+    
+	       硬件相关的操作
+	 s3c2410_gpio_pullup(pdata->gpio, 0);
+ 99         s3c2410_gpio_setpin(pdata->gpio, 0);
+100         s3c2410_gpio_cfgpin(pdata->gpio, S3C2410_GPIO_OUTPUT);
+
+           注册led_classdev
+        ret = led_classdev_register(&dev->dev, &led->cdev);  
+                                                         
+ 总结：驱动的框架分为四步？
+ 
+       1、为结构体分配空间   
+       2、设置结构体  
+	        name 
+       3、硬件相关的操作
+       4、注册
+             led_classdev_register
+			 
+led-class.c   内核为led设备提供的框架，核心层  led子系统
+    static int __init leds_init(void)
+222 {
+              创建类设备目录  /sys/class/leds/
+223     leds_class = class_create(THIS_MODULE, "leds");
+224     if (IS_ERR(leds_class))                                                                                
+225         return PTR_ERR(leds_class);
+226     leds_class->suspend = led_suspend;
+227     leds_class->resume = led_resume;
+228     leds_class->dev_attrs = led_class_attrs;
+229     return 0;
+
+
+
+open
+cat  brightness:   read
+   led_brightness_show    led-class.c  
+       return sprintf(buf, "%u\n", led_cdev->brightness);
+
+echo  1  >  brightnss   write
+    unsigned long state = simple_strtoul(buf, &after, 10);  state   =  1
+   
+        led_set_brightness(led_cdev, state);
+		    if (value > led_cdev->max_brightness)
+ 24         value = led_cdev->max_brightness;
+ 25     led_cdev->brightness = value;
+ 26     if (!(led_cdev->flags & LED_SUSPENDED))
+ 27         led_cdev->brightness_set(led_cdev, value);
+ 
+echo    timer  >trigger
+   
+ 33 
+ 34 ssize_t led_trigger_store(struct device *dev, struct device_attribute *attr,
+ 35         const char *buf, size_t count)   buf  = hello  
+ 
+              42     trigger_name[sizeof(trigger_name) - 1] = '\0';
+ 43     strncpy(trigger_name, buf, sizeof(trigger_name) - 1);     trigger_name  =timer
+  	       list_for_each_entry(trig, &trigger_list, next_trig) {
+ 56         if (!strcmp(trigger_name, trig->name)) {
+ 57             down_write(&led_cdev->trigger_lock);
+ 58             led_trigger_set(led_cdev, trig);
+                          if (trigger->activate)                                                                             
+129                                trigger->activate(led_cdev);
+ 59             up_write(&led_cdev->trigger_lock)
+ 
+ 
+ trigger  
+ delay_on
+ delay_off
+ 
+【2】HAL  硬件抽象层
+     有些厂商不愿意公开他的代码，hal：绕开GPL协议，把核心的技术放在
+	 硬件抽象层去实现。
+	  
+	  抽象层：代理人
+	          每一个设备都是代理人（模型）。
+			  
+			  
+   c库：
+       找代理人，由代理人去操作硬件
+    
+	
+ 如何找代理人？
+ 
+   50 static const char *variant_keys[] = {
+ 51     "ro.hardware",      sun8i /* This goes first so that it can pick up a different
+ 52                        file on the emulator. */
+ 53     "ro.product.board",   exdroid
+ 54     "ro.board.platform",  astar
+ 55     "ro.arch"                                                                                              
+ 56 };
+ 
+ 
+  #define HAL_LIBRARY_PATH1 "/system/lib/hw"
+ 36 #define HAL_LIBRARY_PATH2 "/vendor/lib/hw
+ 57 
+ 
+ 
+                                led
+    int hw_get_module(const char *id, const struct hw_module_t **module) 
+	                         |                          |
+                             |                          |
+                             |            |---------------
+                             |            |   		 				 	 
+    	hw_get_module_by_class(id, NULL, module);
+                                |    |      |
+                                |    |       ------------------------------------ 
+								|    --------------------------                  |
+								--------------|                |                 |      
+                                              |                |                 |
+                                              |				   | 				 |	 	  
+    int hw_get_module_by_class(const char *class_id, const char *inst,const struct hw_module_t **module) 
+    
+	      strlcpy(name, class_id, PATH_MAX);  name  =  led  
+		  
+		  prop_name= ro.hardware.led 
+		  snprintf(prop_name, sizeof(prop_name), "ro.hardware.%s", name);
+	
+	       获取属性的值  getprop  ro.hardware.led 
+168     if (property_get(prop_name, prop, NULL) > 0) {
+169         if (hw_module_exists(path, sizeof(path), name, prop) == 0) {                                       
+170             goto found;
+171         }
+
+           for (i=0 ; i<HAL_VARIANT_KEYS_COUNT; i++) {
+176         if (property_get(variant_keys[i], prop, NULL) == 0) {
+177             continue;
+178         }                                                                                                  
+179         if (hw_module_exists(path, sizeof(path), name, prop) == 0) {
+180             goto found;
+
+
+
+hw_module_exists:   
+   129 static int hw_module_exists(char *path, size_t path_len, const char *name, const char *subname)
+	        snprintf(path, path_len, "%s/%s.%s.so",
+133             snprintf(path, path_len, "%s/%s.%s.so",
+138              HAL_LIBRARY_PATH1, name, subname);
+                      path  = /system/lib/hw/led.sun8i.so 
+					  path  = /vendor/lib/hw/led.sun8i.so 
+					  
+					  path=/system/lib/hw/led.exdroid.so 
+					  path =/vendor/lib/hw/led.exdroid.so 
+					  
+					  path=/system/lib/hw/led.astar.so 
+					  path=/system/lib/hw/led.astar.so 
+					  
+
+139                 if (access(path, R_OK) == 0)
+                              return 0;
+							  
+							  
+		 if (hw_module_exists(path, sizeof(path), name, "default") == 0) {
+186         goto found;
+               					  
+	          path =/system/lib/hw/led.default.so  
+			  path =/vendor/lib/hw/led.default.so 
+
+			  
+goto found;
+	     led     		  
+load(class_id, path, module);
+         |      |          |--------------------------------------
+		 |      -------------------------------                  |
+         --------------------                 |                  |
+                             |		           |                 |
+  static int load(const char *id,const char *path,const struct hw_module_t **pHmi)		  
+	    #define HAL_MODULE_INFO_SYM_AS_STR  "HMI"
+	   struct hw_module_t *hmi;
+	         /system/lib/hw/led.default.so 
+	    handle = dlopen(path, RTLD_NOW);  打开动态库
+	   
+		  const char *sym = HAL_MODULE_INFO_SYM_AS_STR;    
+          dlsym是一个计算机函数，功能是根据动态链接库操作句柄与符号，返回符号对应的地址，不但可以获取函数地址，也可以获取变量地址。
+		  
+ 89     hmi = (struct hw_module_t *)dlsym(handle, sym);
+ 90     if (hmi == NULL) {
+ 91         ALOGE("load: couldn't find symbol %s", sym);
+ 92         status = -EINVAL;
+ 93         goto done;	 
+ 
+           if (strcmp(id, hmi->id) != 0) {
+ 98         ALOGE("load: id=%s != hmi->id=%s", id, hmi->id);
+ 99         status = -EINVAL;
+100         goto done;
+101     }
+            *pHmi = hmi;      
+
+
+ 
+ hal:   led.default.so  
+ 
+  int hw_open(const struct hw_module_t* module, const char* id,
+             struct hw_device_t** device)
+{
+    open
+
+
+}
+ struct  hw_module_t    HMI  = {
+ 
+             .id  = "led",
+             .methods  =  hw_open,    
+ 
+ 
+ };
+ 
+
+
+
+156 typedef struct hw_module_methods_t {                                                                       
+157     /** Open a specific device */
+158     int (*open)(const struct hw_module_t* module, const char* id,
+159             struct hw_device_t** device);
+160 
+161 } hw_module_methods_t; 
+
+
+
+ typedef struct hw_device_t {
+         hw_module_t 
+
+
+
+
+
+
+ 
+	
+   1、什么驱动需要基于platform总线编写？
+        在soc内部的设备需要基于platform总线编写
+           gpio  ----->platform
+           IIC---------->platform
+           mpu6050------->	IIC总线
+           flash--------->spi 总线	
+  
+        	 
+   2、什么硬件信息需要在设备树中添加？
+          在soc的寻址访问内
+		   mpu6050      从机地址
+		   usb摄像头   
+     		   
+    3、linux内核分配空间的函数？
+          kzalloc   和kmalloc函数相似，初始化结构体的成员为0
+          kmalloc：物理内存是连续的，申请的大小不能超过128k
+		  devm_kalloc  涉及设备相关分配空间，和kzalloc相似， 
+                        在卸载驱动时，自动释放空间，不想使用，手动释放空间		  
+		     kfree  释放空间
+          vmalloc() 函数则会在虚拟内存空间给出一块连续的内存区，但这片连续的虚拟内存在物理内存中并不一定连续
+		  如果需要申请较大的内存空间就需要用此函数了。
+		         引起睡眠,中断上下文调用
+		     vfree  
+			 
+		https://www.cnblogs.com/sky-heaven/p/7390370.html
+
+   4、驱动打印？
+         printk(); 
+          dev_err(&dev->dev, "led_classdev_register failed\n");		 
+          dev_info
+    5、驱动给应用程序提供接口有两种方式？
+           字符设备驱动的框架  fop
+            sysfs     创建属性文件		   
+   

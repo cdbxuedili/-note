@@ -1,0 +1,340 @@
+3.14内核版本
+2.4  2.6
+
+arch drivers Documentation include init/main.c 
+
+配置 
+配置核心板:make exynos_defconfig  或者 cp arch/arm/configs/exynos_defconfig .config 
+配置外设板:make menuconfig 
+软件裁剪对menuconfig中的选项的操作。每选中一个选项就相当于选中了内核的一个功能。
+
+[]
+()
+<>
+
+Kconfig Makefile 源文件 .config 
+
+source 路径/Kconfig
+
+menu "主菜单"
+子选项
+config ABC
+	bool "子选项名称1"
+	depends on XYZ
+	
+config XYZ 
+	tristate "子选项2"
+endmenu
+
+config ABC 最终会出现在同级目录下的Makefile中，以CONFIG_ABC形式出现。
+在Makefile中会见到 obj-$(CONFIG_ABC) += xxx.o
+
+子选项1是否能看见，由XYZ对应选项2来决定
+  
+
+编译:make uImage
+	 make dtbs 
+
+	 
+设备树:
+1、什么是设备树
+2、设备树基本语法
+	vi arch/arm/boot/dts/exynos4412-fs4412.dts 
+	
+	根节点{
+		属性 = 属性值;
+		
+		#address-cells = <2>;代表了当前节点的子节点中reg属性的寄存器基地址有2个
+		#size-cells = <1>;代表了当前节点的子节点中reg属性的寄存器偏移量有1个
+		
+		子节点1{
+			compatible = "samsung,fs4412";和驱动中的某个结构体内部的compatible成员匹配
+			reg = <寄存器基地址1 寄存器偏移量1 寄存器基地址2>;
+		};
+		
+		子节点2@寄存器基地址{
+			
+		};
+		
+		标号:子节点3{
+			
+		};
+		
+		子节点4{
+			属性= <&标号>;
+		};
+	};
+3、为什么这样使用设备树
+	 
+Device Drivers  --->
+		[*] Network device support  --->
+			[*]   Ethernet driver support   --->
+				<*>   DM9000 support
+为什么选中上面一堆选项(非常非常非常重要的思想)？
+1、必须事先已经知道自己要移植网卡驱动
+2、网卡是什么型号的
+3、这种型号的网卡在内核中是否已经默认支持，假设已经支持。
+	dm9000网卡驱动源码在drivers/net/ethernet/davicom/dm9000.c
+4、vi drivers/net/ethernet/davicom/Makefile中寻找 obj-$(...) += dm9000.o 
+5、找到obj-$(CONFIG_DM9000) += dm9000.o 
+6、进入drivers/net/ethernet/davicom/Kconfig中，寻找config DM9000,
+7、根据config DM9000找到 tristate "DM9000 support"，说明要想支持网卡驱动必须选中DM9000 support这个选项。
+
+如何找到DM9000 support这个选项？
+1、已经知道DM9000 support对应Kconfig文件路径为drivers/net/ethernet/davicom
+2、返回到drivers/net/ethernet，进入drivers/net/ethernet/Kconfig文件，找主选项bool "Ethernet driver support"
+3、返回上一层drivers/net/Kconfig,继续找主选项
+		  5 menuconfig NETDEVICES
+		  6     default y if UML
+		  7     depends on NET
+		  8     bool "Network device support"
+4、返回上一层，进入drivers/Kconfig，寻找主选项menu "Device Drivers"
+5、此时可以知道要选中dm9000网卡驱动的选项顺序是:
+	Device Drivers
+		==>Network device support
+			==>Ethernet driver support
+				==>DM9000 support
+
+
+例子:我们需要移植一个uvc格式的摄像头驱动，驱动文件在drivers/media/usb/uvc
+1、进入drivers/media/usb/uvc/Makefile中，寻找到6 obj-$(CONFIG_USB_VIDEO_CLASS) += uvcvideo.o
+
+2、进入drivers/media/usb/uvc/Kconfig，寻找config USB_VIDEO_CLASS,最终找到tristate "USB Video Class (UVC)"，说明如果想要使用uvc驱动必须选中"USB Video Class (UVC)"
+
+3、回到drivers/media/usb/Kconfig寻找主选项:bool "Media USB Adapters"
+
+4、回到drivers/media/Kconfig 寻找主选项:tristate "Multimedia support"
+
+5、回到drivers/Kconfig 中找到主选项为:"device drivers"
+所以基本的选项选择顺序为:
+	device drivers
+	==>Multimedia support
+		==>Media USB Adapters
+			==>USB Video Class (UVC)
+发现找到Media USB Adapters到头了，找不到USB Video Class (UVC)
+
+
+6、再回到USB Video Class (UVC)对应的drivers/media/usb/uvc/Kconfig，寻找依赖。
+		depends on VIDEO_V4L2
+		
+7、回到顶层目录搜索grep "config VIDEO_V4L2" * -Rn
+	drivers/media/v4l2-core/Kconfig:6:config VIDEO_V4L2
+8、进入drivers/media/v4l2-core/Kconfig
+	要想选中USB Video Class (UVC)，必须先选中一个选项，但是我们发现没有选项名称，只有依赖:
+		depends on (I2C || I2C=n) && VIDEO_DEV
+				
+9、grep "config I2C" * -Rn 
+	找到结果为:drivers/i2c/Kconfig:5:menuconfig I2C
+	所以必须选中i2c对应的选项
+		device drivers 
+			==> I2C support
+			
+10、继续查看VIDEO_DEV对应选项是否选中。
+	grep "VIDEO_DEV" * -Rn 
+	找到drivers/media/Kconfig:95:config VIDEO_DEV 
+	
+11、进入drivers/media/Kconfig，到95行
+	 95 config VIDEO_DEV                                                            
+	 96     tristate
+	 97     depends on MEDIA_SUPPORT
+	 98     depends on MEDIA_CAMERA_SUPPORT || MEDIA_ANALOG_TV_SUPPORT || MEDIA_RADI
+	 
+12、寻找MEDIA_SUPPORT(已经默认选中)
+	但是MEDIA_CAMERA_SUPPORT没有选中，
+	找到drivers/media/Kconfig:21:config MEDIA_CAMERA_SUPPORT
+
+13、进入到drivers/media/Kconfig，21行
+		找到bool "Cameras/video grabbers support" 说明这个选项一旦被选中则USB Video Class (UVC)选项会出现
+		
+	所以要确认Cameras/video grabbers support的位置:
+	device drivers	
+		==>Multimedia suppor
+			==>Cameras/video grabbers support
+
+内核的编译过程:
+make uImage 
+1、uImage猜测应该是顶层目录下Makefile中的一个目标
+2、504 include $(srctree)/arch/$(SRCARCH)/Makefile 
+	引用了arch/arm/Makefile
+	299 BOOT_TARGETS    = zImage Image xipImage bootpImage uImage                   
+	300 INSTALL_TARGETS = zinstall uinstall install
+	301 
+	302 PHONY += bzImage $(BOOT_TARGETS) $(INSTALL_TARGETS)
+	303 
+	304 $(BOOT_TARGETS): vmlinux（顶层目录下）
+	305     $(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
+
+3、	到顶层目录下寻找vmlinux，作为目标
+	回到顶层目录的Makefile文件，寻找vmlinux目标
+	817 vmlinux: scripts/link-vmlinux.sh $(vmlinux-deps) FORCE
+		vmlinux-deps := arch/arm/kernel/vmlinux.lds arch/arm/kernel/head.o ........
+		通过link-vmlinux.sh根据一堆.o文件链接而来。
+		
+4、回到arch/arm/Makefile中执行 
+	304 $(BOOT_TARGETS): vmlinux（顶层目录下）
+	305     $(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
+		@make $(buile)=arch/arm/boot MACHINE=arch/arm/mach-exynos/  arch/arm/boot/uImage
+			
+5、切换到arch/arm/boot/目录下寻找uImage目标文件
+	 78 $(obj)/uImage:  $(obj)/zImage FORCE                                         
+	 79     @$(check_for_multiple_loadaddr)
+	 80     $(call if_changed,uimage)  调用的是mkimage命令，这个命令是u-boot提供的
+	 81     @$(kecho) '  Image $@ is ready'
+	 要生成uImage必须先生成zImage
+	 
+6、arch/arm/boot/目录下寻找zImage目标
+	 54 $(obj)/zImage:  $(obj)/compressed/vmlinux FORCE                             
+	 55     $(call if_changed,objcopy)
+	 56     @$(kecho) '  Kernel: $@ is ready'
+	要生成zImage必须先生成arch/arm/boot/compressed/vmlinux
+	
+7、进入arch/arm/boot/compressed/Makefile,寻找vmlinux目标
+	185 $(obj)/vmlinux: $(obj)/vmlinux.lds $(obj)/$(HEAD) $(obj)/piggy.$(suffix_y).o
+	186         $(addprefix $(obj)/, $(OBJS)) $(lib1funcs) $(ashldi3) \
+	187         $(bswapsdi2) FORCE
+	188     @$(check_for_multiple_zreladdr)
+	189     $(call if_changed,ld)调用链接器
+	190     @$(check_for_bad_syms)
+	arch/arm/boot/compressed目录下的vmlinux生成是以vmlinux.lds为链接脚本，以一些.o文件为源文件生成的一个可执行文件
+
+	注意:$(obj)/piggy.$(suffix_y).o
+	
+	86 suffix_$(CONFIG_KERNEL_GZIP) = gzip CONFIG_KERNEL_GZIP在.config中被赋值为y
+	
+	$(obj)/piggy.$(suffix_y).o ==》 $(obj)/piggy.gzip.o
+	
+	$(obj)/piggy.$(suffix_y).o:  $(obj)/piggy.$(suffix_y) FORCE 
+	piggy.gzip.o依赖piggy.gzip文件
+	
+	192 $(obj)/piggy.$(suffix_y): $(obj)/../Image FORCE
+	193     $(call if_changed,$(suffix_y))调用的是gzip压缩命令
+	piggy.gzip文件依赖上级目录的Image文件
+	
+	进入上级目录arch/arm/boot/Makefile寻找Image目标：
+	 47 $(obj)/Image: vmlinux FORCE                                                 
+	 48     $(call if_changed,objcopy)
+	 49     @$(kecho) '  Kernel: $@ is ready'
+	Image目标文件依赖的是顶层目录下的vmlinux文件。
+	$(call if_changed,objcopy) 作用是这个函数的返回值为cmd_$(1) ==> cmd_objcopy
+						$(1)
+
+	cmd_objcopy这个是一个变量，这个变量主题调用的是objcopy命令
+
+注意:uImage和zImage只差了64个字节头信息。uImage只能用于u-boot这种引导程序，zImage是通用的。	
+
+内核启动:
+目的不是让你们记住内核中哪些启动代码或者源码，在我讲驱动时需要寻找某部分内核源码时需要知道内核启动的源码在哪里执行。
+
+从arch/arm/kernel/head.S文件开始启动。
+1、设置svc管理模式并且屏蔽所有中断。
+2、获取处理器id
+3、会判断引导程序传递给内核的参数形式(此时会判断参数是否是设备树)
+4、创建页表(虚拟地址映射前必须要先存在页目录、页表项、页)
+5、初始化mmu、开启mmu
+6、b   start_kernel  此时进入init/main.c中的start_kernel函数
+		   ||
+		   \/
+		509     setup_arch(&command_line);
+					||
+					\/
+				883     mdesc = setup_machine_fdt(__atags_pointer); 
+				__atags_pointer是u-boot传给内核的设备树文件映射后的首地址
+				......解析设备树
+				
+		581     console_init();控制台初始化，如果这个函数没有执行那么内核打印语句是不能打印到中端的
+		652     rest_init();
+					||
+					\/
+				382     kernel_thread(kernel_init, NULL, CLONE_FS | CLONE_SIGHAND);
+							||
+							\/
+						840     kernel_init_freeable();
+									||
+									\/
+							913     if (sys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
+
+							928         prepare_namespace();
+											||
+											\/
+									589     mount_root(); 
+												||
+												\/
+										510         if (mount_nfs_root())
+														挂载文件系统
+							
+							
+根文件系统的制作和挂载							
+
+什么是文件系统？一种描述硬盘上或者内存上信息的软件。
+什么是根文件系统？主要用于嵌入式设备上的需要挂载的文件系统。
+							
+文件系统镜像是以文件系统为基础调用一些工具制作而来。
+tftp 43000000 ramdisk.img							
+							
+							
+busybux工具帮助用户产生一堆命令的，剩下的需要用户自己添加的一个重要文件夹是etc
+在etc下有4个重要文件:
+第一个inittab 
+	每行数据包含4个部分，每个部分之间通过冒号来分隔。
+	域1:域2:域3:域4
+	
+	其中前两个域在嵌入式系统中几乎不使用。
+	
+	域3，描述执行动作
+		sysinit 
+		askfirst/respawn
+		restart
+		ctrlaltdel
+	域4，执行动作由哪些命令实现
+		etc/init.d/rcS
+		-/bin/sh
+		sbin/init 
+		sbin/reboot
+							
+第二个文件init.d/rcS 
+	/bin/mount  -a  专门用于挂载
+	echo  /sbin/mdev  >  /proc/sys/kernel/hotplug 支持热插拔
+	/sbin/mdev  -s 动态创建设备节点
+	
+sda1
+sd代表某种类型的硬盘
+a代表的是这种类型的第一个硬盘
+1代表的是这种类型的第一个硬盘的第一个主分区
+主分区最多分4个，编号是1，2，3，4
+
+第三个文件:
+fstab文件的6个域:
+第1栏(device)： 	设备文件(代表具体的设备)
+第2栏(mount  point)： 	文件系统对应的挂载点
+第3栏(type)：	文件系统类型
+第4栏(options)： 	mount文件系统时使用的参数，如果没有明确指定默认是defaults
+第5栏(dump)： 	用dump备份文件系统的时间间隔，0表示不需要备份
+第6栏(fsck  order)： 开机时执行fsck的先后顺序 ，0表示不需要检查
+
+proc是一种基于内存的文件系统，用来动态描述进程信息。
+sysfs也是一种基于内存的文件系统，后面驱动讲。
+
+
+windows支持的文件系统:FAT16、FAT32、NTFS
+linux支持的文件系统:ext2 ext3 ext4 
+
+第四个文件:/etc/profile,非常实用的配置文件，作用类似于bash.bashrc
+
+export 作用是将本文件变量变成全局变量
+
+#!/bin/sh
+export HOSTNAME=farsight 控制主机名是farsight
+export USER=root 代表用户名
+export HOME=root 用户的主目录名
+export PS1="[$USER@$HOSTNAME \W]\# " 控制中断上的格式为[root@farsight ]#,\W表示出路径的。
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+LD_LIBRARY_PATH=/lib:/usr/lib
+export PATH  LD_LIBRARY_PATH
+
+
+dd  if=/dev/zero      of=ramdisk           bs=1k             count=8192
+	输入文件是zero    输出文件是ramdisk   每块数据大小      每次操作的块数
+zero可以无限产生二进制0
+
+sudo  mount  -t  ext2   ramdisk  /mnt/initrd 将ramdisk挂载到/mnt/initrd中，说明对initrd的操作就相当于对ramdisk操作
+

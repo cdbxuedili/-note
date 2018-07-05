@@ -1,0 +1,234 @@
+框架:
+字符设备框架
+块设备框架
+网络设备框架
+
+用户空间:		执行任务——系统调用、库函数
+——————————————————————————————————————————————————————
+内核空间				系统调用源码
+						   访问vfs
+						  各种文件系统——很多的结构体和接口
+						   驱动代码
+——————————————————————————————————————————————————————
+							硬件
+
+mknod "/dev/设备文件" c 主设备号  次设备号
+应用程序访问具体的驱动前必须要使用设备号来进行匹配
+在驱动中需要申请并且注册设备号
+
+设备号:32位无符号整数，前12位代表主设备号，后20位代表次设备号
+设备号 = MKDEV(主设备号，次设备号);
+
+注册设备号:
+静态注册:效率高，容易冲突
+	int register_chrdev_region(起始设备号,注册的连续的设备个数,名称);
+动态注册:效率低，不容易冲突
+	int alloc_chrdev_region(&设备号变量,起始的次设备号，连续的设备个数,名称);
+	
+驱动中会实现很多的功能，但是到底能不能使用到由应用程序决定
+
+struct cdev  描述字符设备
+{
+const struct file_operations *ops;
+};
+静态定义方式:struct cdev cdev;
+动态的申请: struct cdev *cdevp = kzalloc(申请的空间大小,GFP_KERNEL);
+struct file_operations 描述驱动中的函数接口
+{
+
+};
+
+int xxx_open(struct inode *inode,struct file *filp)//这个函数会被应用层的open调用
+{
+	return 0;
+}
+
+struct file_operations fops = {
+	.owner = THIS_MODULE,代表当前正在使用的模块
+	.open = xxx_open,
+	
+};
+
+//cdev_init(&cdev,&fops);
+//cdev_add(&cdev,起始设备号,设备个数);
+
+cdev_init(cdevp,&fops);
+cdev_add(cdevp,,);
+以上接口都在加载函数中使用
+
+unregister_chrdev_region();注销设备号
+cdev_del();注销字符设备
+上面接口在卸载函数中使用
+
+以上所有内容是搭建字符设备框架的基本用法
+————————————————————————————————————————————————————————————————————————
+struct inode  描述的是文件的静态信息，每个文件都有一个唯一的inode结构体
+{
+
+};
+
+struct file  描述的是文件的动态信息，每当打开一次文件就可以产生一个新的file结构体
+{
+
+};
+
+应用层会获取文件描述符，文件描述符本质是一个数组下标，会索引到数组元素(struct file *)
+file *指针可以找到具体的file结构体，file结构体中存放了自己定义的file_operations首地址
+
+每次都需要手动创建设备文件，比较麻烦。驱动实现过程中，最好自动创建设备文件
+struct class *class_create(THIS_MODULE,"字符串")
+参数2会以目录名的方式出现在/sys/class目录下
+
+struct device *device_create(struct class *,父设备指针,设备号,给设备传递的参数,"xxx");
+xxx会以软链接的方式出现在/sys/class/类目录名/xxx  同时这个xxx也是设备文件名
+
+根文件系统提供了mdev可执行程序，mdev会直接将路径切换到/dev，然后打开/sys/class下面的所有子目录中的dev文件(为了获取主次设备号),调用mknod函数来创建出设备文件
+——————————————————————————————————————————————————————————————————————————————————————
+第三天
+static inline int register_chrdev(unsigned int major, const char *name,const struct file_operations *fops)
+内部源码实现包括了:
+1、静态注册或者动态注册设备号
+2、动态的给cdev申请空间
+3、类似于cdev_init()
+4、包括了cdev_add()
+
+参数1:主设备号或者0
+	如果是主设备号，则使用静态注册
+	如果是0，则使用动态注册
+参数2:出现在/proc/devices 
+参数3:自己定义struct file_operations变量，并且初始化，将这个变量的地址作为参数3
+
+返回值:如果参数1传递的是主设备号，则正确返回0
+	   如果参数1传递的是0，则正确返回非0(代表主设备号)
+	   
+static inline void unregister_chrdev(unsigned int major, const char *name)
+功能:注销字符设备框架
+参数1:一定是主设备号
+参数2:
+
+
+-4095   
+
+-4096
+源码 1 18个0 1000000000000
+反码 1 18个1 0111111111111
+补码:1 18个1 1000000000000
+		20个1  12个0     FFFFF000
+		
+-1
+原码:1 30个0 1
+反码:1 30个1 0
+补码:32个1      FFFFFFFF(2的32次方-1，虚拟地址的最大值)
+获取了一个地址范围: (FFFFF000,FFFFFFFF]  什么是全局错误码，其实就是虚拟地址的另一种形式
+
+如果应用层中有读或者写需求，则驱动代码中必须要添加读写功能。
+什么是读写(输入输出)？
+输入和输出都是站在用户的角度考虑问题
+输入:数据从内核空间流向用户空间
+输出:数据从用户空间流向内核空间
+
+应用层:ssize_t read(       int fd,      void *buf,    size_t  count);
+	   参数2:存放读取到的数据
+	   参数3:buf指向的空间大小
+	   返回值:正确读取到的字节数
+驱动层:ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
+	   参数1:通过文件描述符索引的
+	   参数2:接收用户空间传递过来的用于存放数据的空间首地址(就是buf)
+	   参数3:接收应用层中read的参数3
+	   参数4:相当于是文件的偏移指针(指向了文件的当前位置)
+	   返回值:正确读取到的字节数
+	   
+static inline long copy_to_user(void __user *to,const void *from, unsigned long n)
+参数1:用户层的缓存区空间首地址
+参数2:内核中一个空间首地址
+参数3:一般情况下只需要传递实际需要拷贝的字节数
+返回值:成功返回0
+
+应用层:ssize_t write(int fd, const void *buf, size_t count);
+		参数1:文件描述符
+		参数2:需要写入的数据的空间首地址
+		参数3:一般使用的是数据的实际大小
+驱动层:ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *)
+		参数1:
+		参数2:接收用户空间传递过来的用于存放数据的空间首地址(就是buf)
+		参数3:接收应用层中write的参数3
+		参数4:相当于是文件的偏移指针(指向了文件的当前位置)
+			  注意:读写指针是共享的
+
+static inline long copy_from_user(void *to,const void __user * from, unsigned long n)
+参数1:内核中一个空间首地址
+参数2:用户层的缓存区空间首地址
+参数3:需要拷贝的实际的字节数，也可以写内核的空间大小
+返回值:成功返回0
+
+
+我们想在驱动实现一种功能，正常来说需要在file_operations中封装某个函数接口，但是这个结构体
+的内容是有限的，有可能出现我们需要的功能，这个结构体并没有提供接口。所以file_operations中
+提供了一种通用的接口(ioctl、unlocked_ioctl,compat_ioctl)。其他的函数不能使用时，此时需要使用这个通用的接口。
+
+串口:收发功能(file_operations提供了)，设置波特率，设置流控(file_operations没有直接提供)。
+
+ioctl、unlocked_ioctl,compat_ioctl,在老版本的内核中存在，3.14内核中已经没有ioctl了。
+compat_ioctl专门用于内核是64位的环境，用户空间是32位的环境。
+
+应用层:int ioctl(int d, int request, ...);
+		参数1:文件描述符 
+		参数2:命令
+		参数3:可以完全不使用
+			  也可以传递一个具体值:可以是一个变量名，也可以是一个变量的地址
+								   千万不要直接传递一个整数。
+		ioctl(fd,100);//需要的第一种功能
+		ioctl(fd,200);//需要的第二种功能
+		
+驱动:long (*unlocked_ioctl) (struct file *, unsigned int cmd, unsigned long);
+	参数1:和文件描述符匹配
+	参数2:命令
+	参数3:从应用层传递过来的一个具体值
+
+	int demo_ioctl(,,)
+	{
+		switch(cmd)
+		{
+		case 100:
+			功能1;
+			break;
+		case 200:
+			功能2;
+			break;
+		}
+	}
+
+发现传递2时没有成功，说明这种方法是错误的，正确的做法如下:
+我们使用的cmd,有特殊要求:
+1、cmd是一个32位的无符号整数
+2、这个32位被分成了4个部分
+		8		8		2		14
+	   幻数	  序号     方向    类型大小
+	   
+幻数:代表了命令是哪种设备使用或者说哪个驱动使用
+序号:某个驱动确定好之后，这个驱动能使用的命令个数可能有多个(这个驱动所使用的第几个命令)
+方向:数据的传递方向
+	 只读数据
+	 只写数据
+	 读写数据
+	 无读无写数据
+类型大小:当有数据需要传递时使用
+
+所以根据以上内容，cmd应该如何去设置？
+int cmd;
+cmd = 幻数 << 24 | 序号 << 16 | 方向 << 14 | 类型大小 
+
+内核提供了一些接口来帮我们去生成命令:
+_IO(幻数,序号)
+_IOR(幻数,序号,类型名)
+_IOW(幻数,序号,类型名)
+_IOWR(幻数,序号,类型名)
+
+
+struct file 
+{
+	void *private_data;//专门存放私有数据
+}
+
+
+自己去看container_of()函数

@@ -1,0 +1,241 @@
+并发和竞态
+
+当前使用的操作系统是可抢占操作系统。
+
+
+并发:微观或者宏观多个任务同时执行
+竞态:因为多个任务同时运行而可能出现的资源竞争。
+
+如何避免竞态产生？
+
+任何情况下临界区代码都要进来保持足够小。
+1、中断屏蔽
+	关闭中断
+	执行代码//又叫做临界区
+	打开中断
+	
+2、原子操作(不可分割操作)
+	atomic_set();
+	atomic_dec_and_test();
+	atomic_inc();
+	
+	
+3、自旋锁
+	初始化锁
+	申请锁
+	释放锁
+
+	如果使用互斥锁并且没有申请到锁则当前任务会阻塞(等待、睡眠)。
+	
+	自旋锁执行流程:
+	进程(自旋锁)
+	 ||
+	 \/
+	关闭抢占
+	 ||
+	判断V == 0？(如果V != 0，本进程在当前位置要无限循环判断V是否为0)
+	 ||
+	 \/
+	如果V == 0
+	本进程将V = 1；
+	 ||
+	 \/
+	执行临界区代码
+	 ||
+	 \/
+	V = 0并且开启抢占
+
+注意:临界区代码不能出现睡眠类函数，互斥锁中可以使用睡眠类函数。
+	 自旋锁可以用于普通进程、可以用于中断处理函数，但是互斥锁只能普通进程。
+
+4、信号量
+	sema_init();
+	down();申请资源 《==》 应用层中的sem_wait();
+	up();释放资源   《==》应用层中的sem_post();
+5、互斥锁
+	mutex_init()
+	mutex_lock()
+	mutex_unlock()
+
+驱动中的IO模型:
+阻塞
+多路复用
+	
+
+阻塞:读阻塞、写阻塞。通常使用读阻塞
+读阻塞:根本没有数据;有数据但是没有传递给用户空间。
+写阻塞:没有足够空间存储数据
+
+应用层中使用的scanf(),getchar(),gets(),fgets(),read(),recv()....默认都是阻塞的。因为这些函数接口对应的驱动层实现了阻塞机制。我们自己在使用read函数来调用自己驱动中的read时不会阻塞，所以在自己的驱动中需要实现阻塞机制。
+
+如何在自己驱动中实现阻塞？操作系统引入了一种机制来实现阻塞——等待队列
+
+244 #define wait_event(wq, condition)                   \                       
+245 do {                                    \
+246     if (condition)  判断条件                        \
+247         break;                          \
+248     __wait_event(wq, condition);                    \
+249 } while (0)
+
+如果condition条件为真则跳出wait_event()函数。
+
+如果条件不成立执行__wait_event
+	
+228 #define __wait_event(wq, condition)                 \                       
+229     (void)___wait_event(wq, condition, TASK_UNINTERRUPTIBLE, 0, 0,  \
+230                 schedule())	
+					||
+					\/
+			200     INIT_LIST_HEAD(&__wait.task_list);  初始化一个双向链表头
+			207         long __int = prepare_to_wait_event(&wq, &__wait, state);
+										||
+										\/
+						202     if (signal_pending_state(state, current))
+									给当前进程设置状态:TASK_UNINTERRUPTIBLE
+						206     wait->func = autoremove_wake_function;
+										     后续需要调用的函数
+		
+			222         cmd;   调用schedule()进程调用函数，如果进程状态为
+							   TASK_UNINTERRUPTIBLE则使进程睡眠。
+							   
+——————————————————————————————————————————————————————————————————————————————————
+159 #define wake_up(x)          __wake_up(x, TASK_NORMAL, 1, NULL)
+==》94     __wake_up_common(q, mode, nr_exclusive, 0,key); 							   
+	    ==》72         if (curr->func(curr, mode, wake_flags, key) 
+							这是一个函数指针调用，具体的函数wait_event内部实现
+							||
+							\/
+又回到了wait_event接口内部
+				for(;;)
+				{
+				
+				if(condition)//需要成立，我们自己控制
+					break;
+				206     wait->func = autoremove_wake_function;
+									最终内部设置TASK_WAKING
+						
+				调用schedule(),通过TASK_WAKING使进程继续运行。
+									
+				}					
+————————————————————————————————————————————————————————————————————————————
+根据wait_event()以及wake_up()函数原型发现，都会用到wait_queue_head_t 变量或者地址。要使用wait_queue_head_t信息，需要对其进行初始化:
+init_waitqueue_head();	
+
+
+实现等待队列的过程:
+1、定义等待队列头
+2、初始化等待队列头
+3、判断条件是否成立
+   如果条件成立直接运行进程
+   如果条件不成立，则进程会阻塞(被wake_up函数所唤醒)
+
+————————————————————————————————————————————————————————————————————————————————————
+多路复用:
+select(文件描述符最大值+1,读表,写表,异常表,超时检测);
+select函数如果没有文件描述符就绪则阻塞，如果有文件描述符就绪则唤醒，唤醒后select函数
+会清除未就绪的其他所有文件描述符。
+
+fd_set readfds;作为读表
+FD_SET(fd,&readfds);//将fd添加到读表
+FD_ZERO(&readfds);//将原表中一些随机值更新为0
+FD_CLR(fd,&readfds);//在表中删除指定的文件描述符
+FD_ISSET(fd,&readfds);//判断fd是否在readfds这个表中
+
+——————————————————————————————————————————————————————————————————————————————————————
+上层的select和底层的？有关
+struct file_operations 
+{
+	unsigned int (*poll) (struct file *, struct poll_table_struct *);
+};
+上层的select和驱动层中的poll有关。
+
+vi arch/arm/include/uapi/asm/unistd.h
+110 #define __NR_select         (__NR_SYSCALL_BASE+ 82) 
+			  ||
+			  \/
+	829 __SYSCALL(__NR_select, sys_select)
+								||
+								\/
+					640     ret = core_sys_select(n, inp, outp, exp, to);  
+									||
+									\/
+						599     ret = do_select(n, &fds, end_time);
+										||
+										\/
+						 447         struct fd f;
+						 454         const struct file_operations *f_op;
+						 455         f_op = f.file->f_op; 存放了我们自己的file_operations
+															结构体首地址
+						 456         mask = DEFAULT_POLLMASK;
+						 457         if (f_op->poll) { 
+									 这里的f_op->poll就是我们自己驱动中实现的poll函数
+——————————————————————————————————————————————————————————————————————————————————————
+问题:我们自己驱动中如何实现poll函数？
+110 #define __NR_select         (__NR_SYSCALL_BASE+ 82) 
+			  ||
+			  \/
+	829 __SYSCALL(__NR_select, sys_select)
+								||
+								\/
+					640     ret = core_sys_select(n, inp, outp, exp, to);  
+									||
+									\/
+						599     ret = do_select(n, &fds, end_time);
+										||
+										\/
+								417     poll_initwait(&table);
+										||
+										\/
+								121     init_poll_funcptr(&pwq->pt, __pollwait);
+										71     pt->_qproc = qproc;
+										实际操作是pt->_qproc = __pollwait(这是一个函数名)
+	
+跟进__pollwait
+ 105  * Ok, Peter made a complicated, but straightforward multiple_wait() function.                  
+ 106  * I have rewritten this, taking some shortcuts: This code may not be easy to
+ 107  * follow, but it should be free of race-conditions, and it's practical. If you
+ 108  * understand what I'm doing here, then you understand how the linux
+ 109  * sleep/wakeup mechanism works.
+ 110  *
+ 111  * Two very simple procedures, poll_wait() and poll_freewait() make all the
+ 112  * work.  poll_wait() is an inline-function defined in <linux/poll.h>,
+ 113  * as all select/poll functions have to call it to add an entry to the
+ 114  * poll table.
+		在自己驱动需要调用poll_wait()来实现一些功能
+ 115  */
+ 116 static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
+ 117                poll_table *p);
+——————————————————————————————————————————————————————————————————————————————————
+42 static inline void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table *p)
+ 43 {
+ 44     if (p && p->_qproc && wait_address)
+ 45         p->_qproc(filp, wait_address, p);                                                        
+ 46 }	
+————————————————————————————————————————————————————————————————————————————————
+219 static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
+ 220                 poll_table *p)
+ 221 {
+ 222     struct poll_wqueues *pwq = container_of(p, struct poll_wqueues, pt);
+ 223     struct poll_table_entry *entry = poll_get_entry(pwq);
+
+ 226     entry->filp = get_file(filp);
+ 227     entry->wait_address = wait_address;//使用了一个等待队列头
+ 228     entry->key = p->_key;//和文件描述符相关掩码
+ 229     init_waitqueue_func_entry(&entry->wait, pollwake);
+												 唤醒进程的作用
+ 230     entry->wait.private = pwq;
+ 231     add_wait_queue(wait_address, &entry->wait);
+ 232 }
+————————————————————————————————————————————————————————————————————————————————————
+
+上层select  .......  底层poll之间到底在干嘛？
+上层select默认是阻塞，所以驱动中poll接口也需要操作阻塞机制，而底层使用了等待队列来实现
+阻塞机制，既然会用到等待队列，所以还需要唤醒机制。(内核中__pollwait实现的)
+
+要想实现以上目的，则需要调用__pollwait接口。通过poll_wait()函数来实现一个回掉函数进而操作__pollwait接口。
+
+————————————————————————————————————————————————————————————————
+自己的驱动中如何操作poll接口
+
+
+

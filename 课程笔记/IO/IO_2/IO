@@ -1,0 +1,316 @@
+b:块设备文件(存储设备)
+c:字符设备
+d:目录文件
+-:普通文件
+l:链接文件
+s:套接字文件
+p:管道文件
+
+输入:数据从内核空间流向用户空间   scanf
+在用户空间的角度说,输入就是将数据从内核空间读到用户空间,读操作
+输出:数据从用户空间流向内核空间   printf
+在用户空间的角度说,输出就是将数据从用户空间写到内核空间,写操作
+
+标准IO
+1.属于C库调用
+库其实就是功能函数的分装集合,二进制代码的集合
+
+2.移植性强,通用性强,高级IO
+
+3.自带缓存(蓄水池)
+临时存放数据,对硬件起到保护作用(减少对磁盘的操作次数)
+三种缓存:
+行缓存(标准输出有关)
+1k    1024byte
+刷新条件:
+1.'\n'  2.缓存区满了
+3.程序正常退出时  main中使用return相当于退出程序
+                 man 3 exit(库调用) --->void exit(int status);
+                #include <stdlib.h>    清空缓存区的功能
+                0  正常退出   EXIT_SUCCESS
+                1  不正常退出 EXIT_FAILURE
+                man 2 _exit(系统调用) 不清空缓存
+
+                exit本质 是清空缓存区在调用 _exit来结束程序
+                1.立刻关闭进程
+                2.
+                3.
+                4.
+
+4.fflush
+int fflush(FILE *stream);
+功能:强制刷新一个缓存区,将缓存区中的数据刷新到内核空间
+
+全缓存(标准输入有关)
+4k  1024*4byte
+刷新条件:1.程序正常退出  2.缓存满了  3.fflush  4.关闭流
+
+无缓存(标准错误有关)
+
+文件IO
+1.属于系统调用
+2.移植性差  低级IO
+3.不带缓存(本质是内核缓存)
+
+三个流:
+标准输入:stdin
+标准输出:stdout
+标准错误:stderr
+vi -t stdin ---> extern struct _IO_FILE *stdin;
+文件流指针本质就是结构体指针,该指针指向结构体struct _IO_FILE类型
+
+fopen:
+FILE *fopen(const char *path, const char *mode);
+功能:打开一个指定路径的文件,返回该文件的文件流
+参数:const char *path  需要打开的文件所在的路径
+     const char *mode  打开文件时的权限
+返回值:正确执行返回FILE*   vi -t FILE ----> typedef struct _IO_FILE FILE;
+struct _IO_FILE 存放了打开的对应文件信息
+错误返回NULL,并设置errno号
+errno号本质是系统中通用类型错误号,是一个整形数值,而这些数值与对应的错误相绑定
+errno对应的错误:/usr/include/asm-gengeric/errno-base.h
+
+strerror:
+#include <string.h>
+char *strerror(int errnum);
+功能:通过获取的errno号得到对应的错误内容的字符串
+
+fprintf:
+int fprintf(FILE *stream, const char *format, ...);
+功能:和printf相同按格式输出,可以输出结果到指定的流上(例如:errno输出到标准错误stderr)
+注:printf默认输出到标准输出stdout
+
+perror:容错报错的专用函数 和errno号有关
+void perror(const char *s);
+功能:perror("fail to open")相当于fprintf(stderr,"fail to open:%s\n",strerror(errno));
+
+mode:这个参数是const char*是字符串,所以权限上要加上""
+r:读操作 , 文件存在(处于文件开始位置),文件不存在,报错
+
+r+:读写操作,文件存在(处于文件开始位置),文件不存在,报错
+
+w:写操作,文件存在(先清空文件,在写入),文件不存在,则在指定路径创建同名文件
+
+w+:读写操作,文件存在(先清空,后读写),文件不存在,则在指定路径创建同名文件
+
+a:追加写操作(在文件末尾写入),文件存在(在文件末尾写入数据),文件不存在,则在指定路径创建同名文件
+
+a+:追加和读操作,文件存在(读文件从文件开始,追加从文件末尾写入),文件不存在,则在指定路径创建同名文件
+
+注:w和w+ 使用务必注意!!!
+
+
+fclose:
+int fclose(FILE *fp);
+功能:根据参数关闭一个指定的流
+返回值:正确执行返回0,错误返回EOF(#define EOF (-1)),并设置errno号
+
+输入输出函数:
+按字符输入输出
+fgetc
+int fgetc(FILE *stream);
+功能:从指定流获取一个字符
+返回值:正确返回获取数据的ascii码,错误返回EOF(并没有设置errno号)
+注:
+fgetc返回EOF有两种情况:
+1.读到文件末尾
+2.真的出现错误
+
+feof:
+int feof(FILE *stream);
+功能:判断文件是否到达文件末尾
+返回值:到文件末尾返回非0值,不到文件末尾返回0
+
+fputc
+int fputc(int c, FILE *stream);
+功能:输出字符到指定的流上
+返回值:正确返回输出数据的ascii码,错误返回EOF
+putchar('c') == fputc('c',stdout)
+
+按行输入输出
+注意:
+gets:不建议使用该函数,获得的长度超过限制也不会报错,或直接出现莫名错误
+
+fgets   优势:第二个参数size规定了输入数据最多多长,防止越界问题
+char *fgets(char *s, int size, FILE *stream);
+功能:从指定流获取一定长度的字符串(读入数据到'\n'或者EOF截止),并用字符数组接收
+返回值:错误返回NULL   1.文件末尾 2.error
+参数:1.放到那里去? 字符数组  2.最多放多少? sizeof  3.从哪里来? 流
+注:
+1.fgets获取字符串时末尾会自动添加'\0'
+2.fgets会将'\n'符号一同读入
+所以fgets读入字符串的末尾有'\n''\0'
+消除fgets获取字符串中的'\n'方法如下:(注意sizeof在这没用!!)
+if(buf[strlen(buf)-1] == '\n')
+    buf[strlen(buf)-1] = '\0';
+
+fputs
+int fputs(const char *s, FILE *stream);
+功能:将字符串输出到指定流上,写入结束的标志是'\0'
+返回值:错误返回EOF
+
+bzero
+#include <strings.h>
+void bzero(void *s, size_t n);
+功能:从s开始清空n个空间为0或者'\0'
+
+memset
+#include <string.h>
+void *memset(void *s, int c, size_t n);
+例如:
+memset(buf,0,sizeof(buf));
+从buf开始到末尾清0
+
+按块输入输出
+fread
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+功能:按照指定流成块读取文件内容
+返回值:>0 返回成功读取数据的个数 ==0 读到文件末尾  <0 fread出错
+参数:1.到哪里去? 字符数组 2.单个块的大小 3.一次最多搬运几块 4.从哪里来
+
+fwrite
+size_t fwrite(const void *ptr, size_t size, size_t nmemb,FILE *stream);
+功能:按块往指定流里面写入
+注:读多少写多少,请填入真实入到的数据块数!!!
+
+
+fseek:
+int fseek(FILE *stream, long offset, int whence);
+功能:进行文件指针偏移
+参数:需要偏移的文件的文件指针,偏移量(+/-)(以byte为单位),
+相对位置(SEEK_SET(文件头),SEEK_CUR(当前位置),SEEK_END(文件末尾))
+返回值:错误返回-1,并设置errno号 正确返回0
+注:
+1.在文件头往前偏移会出现错误
+2.在文件末尾往后偏移会出现文件空洞
+3.whence+offset == fseek运行后的偏移位置
+
+ftell
+long ftell(FILE *stream);
+功能:返回当前文件指针所在的位置
+返回值:正确返回文件指针所在的位置(本质:当前文件指针和文件开头相差的字节数)
+注:计算文件大小
+fseek(fp,0,SEEK_END);
+printf("size:%ld\n",ftell(fp));
+
+rewind
+void rewind(FILE *stream);
+功能:将文件指针指向文件的开头
+类似:fseek(fp,0,SEEK_SET);
+
+文件IO
+1.系统调用
+
+2.移植性差,低级IO
+
+3.无缓存(内核缓存)
+
+文件描述符
+在当前系统文件描述符允许的范围是0~1023个  一共1024个
+默认0 1 2 标准输入(stdin)  标准输出(stdout) 标准错误(stderr)
+文件描述符的分配:从3开始,分配的是最小的未使用值
+文件描述符是整形的数值,本质其实是索引(数组下标)(钥匙)
+注:标准IO基于文件IO实现
+
+文件IO操作文件,通过文件描述符访问文件,用完记得归还文件描述符
+
+
+open:
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+int open(const char *pathname, int flags);
+当创建文件时使用该形式OPEN:int open(const char *pathname, int flags, mode_t mode);
+
+参数:const char*pathname  文件路径  flag 旗帜
+
+open打开文件时的三大旗帜
+creation flags(创建旗) O_CREAT 创建 O_EXCL测试文件是否存在,文件存在报错  O_TRUNC 清空
+accsee flags(访问旗)   O_RDONLY 只读  O_WRONLY 只写 O_RDWR 读写
+注:三个访问旗必选其中一个(有且只选一个)
+status flags(状态旗)  O_NONBLOCK非阻塞   O_APPEND 追加
+
+mode_t mode  创建文件时使用  赋予创建该文件的权限   0777rwxrwxrwx 0666rw-rw-rw-
+umask:文件权限掩码   在目录下输入会得到umask  0 002
+创建文件时得到的真实权限是:mode & (~umask)
+
+返回值:正确返回该文件的文件描述符,错误返回-1 并设置errno号
+
+对应fopen的权限
+r:O_RDONLY | O_EXCL
+w:O_WRONLY | O_CREAT | O_TRUNC
+a:O_WRONLY | O_APPEND | O_CREAT
+
+close
+int close(int fd);
+功能:关闭对应文件描述符
+返回值:正确返回0,错误返回-1,并设置errno号
+
+read:
+#include <unistd.h>
+ssize_t read(int fd, void *buf, size_t count);
+功能:通过文件描述符从对应文件中读取数据到buf中
+返回值:ssize_t == int  正确执行时,返回正确读取数据的个数,当读取到达文件末尾是,返回0
+read执行出错时返回-1,并且设置errno号
+
+write:
+ssize_t write(int fd, const void *buf, size_t count);
+功能:通过文件描述符将buf中的数据写入对应文件中
+
+注:读多少写多少,第三个参数从严谨的角度来说必然是read读取到真实数据的个数(read返回值)
+
+lseek:
+#include <sys/types.h>
+#include <unistd.h>
+off_t lseek(int fd, off_t offset, int whence);
+参数:除了第一个参数不同,其他和fseek相同,offset是偏移量,whence是相对位置
+返回值:正确执行返回当前指针与文件开头相差的字节数,错误返回-1,并设置errno号
+
+whence : SEEK_CUR(当前位置)  SEEK_END(文件末尾) SEEK_SET(文件开始的位置)
+
+opendir
+DIR *opendir(const char *name);
+
+readdir
+#include <dirent.h>
+struct dirent *readdir(DIR *dirp);
+返回值:正确执行返回struct dirent*(包含目录信息),错误返回NULL,并设置errno号,如果读取到目录末尾
+则会返回NULL,但errno为0
+
+closedir
+#include <sys/types.h>
+#include <dirent.h>
+int closedir(DIR *dirp);
+返回值:正确返回0,错误返回-1 并设置errno号
+
+stat
+
+
+
+
+静态库
+编译时需要,运行时不需要
+优点:移植性强,编译完成后可以脱离静态库工作
+缺点:编译生成的文件会过大
+制作静态库:
+gcc -c fun.c -o fun.o  得到fun.o
+ar crs libmyfun.a fun.o   生成静态库
+注:库的名字必须以lib开头静态库尾缀为.a
+gcc main.c -L. -lmyfun  将指定路径的静态库添加到文件中来得到可执行文件
+-L :指定静态库所在路径
+-l:链接库名
+静态库格式:lib库名.a
+
+
+动态库(共享库)
+编译时不需要,运行时需要
+优点:不占文件大小,编译得到的文件比较小
+缺点:移植性较差
+gcc -fPIC -c fun.c     默认得到fun.o
+gcc -shared -o libfarsight.so fun.o  将fun.o 生成动态库   动态库命名规则lib库名.so
+
+将动态库移动到指定目录下   /lib   或者 /usr/lib
+sudo mv libfarsight.so /usr/lib/
+
+gcc main.c -lfarsight    链接动态库进行编译生成可执行文件
+注意:只是单纯链接动态库,但并不把动态库的内容加载,要运行时才加载动态库

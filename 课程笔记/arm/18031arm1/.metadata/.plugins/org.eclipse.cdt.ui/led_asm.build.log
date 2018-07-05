@@ -1,0 +1,12 @@
+14:03:30 **** Incremental Build of configuration Default for project led_asm ****
+make all 
+arm-none-eabi-gcc -c -g laowang.c -o laowang.o
+laowang.c:59:6: warning: conflicting types for 'laowu' [enabled by default]
+laowang.c:55:2: note: previous implicit declaration of 'laowu' was here
+arm-none-eabi-gcc -g -c asm.s -o asm.o
+arm-none-eabi-gcc -g -c asm_delay.s -o asm_delay.o
+arm-none-eabi-ld -Ttext 0x40008000 asm.o asm_delay.o laowang.o -o asm.elf
+arm-none-eabi-objdump -D asm.elf > asm.dis
+
+14:03:32 Build Finished (took 2s.450ms)
+

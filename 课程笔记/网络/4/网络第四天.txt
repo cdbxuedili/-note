@@ -1,0 +1,152 @@
+tcp并发服务器:一个父进程，多个子进程，通常用于小型服务器
+
+signal(SIGCHLD,SIG_IGN);
+while(1)
+{
+	datafd = accept(sockfd,);
+	pid = fork();
+	
+	if(pid == -1)
+	{
+	}
+	else if(pid == 0)//子进程会继承sockfd,datafd，专门收发数据
+	{
+		close(sockfd);
+		
+		while(1)
+		{
+			recv();
+			//当客户端使用完成后，子进程需要退出
+		}
+	}
+	else //父进程专门用来和客户端建立连接
+	{
+		close(datafd);
+		//wait();//如果使用wait，同时子进程不退出，这个位置会阻塞，一旦阻塞，父进程不会和其他子进程建立连接。
+	}
+}
+
+阻塞:
+非阻塞:
+flag = fcntl(fd,F_GETFL);
+flag |= O_NONBLOCK;
+fcntl(fd,F_SETFL,flag);//文件描述符具备了非阻塞特性
+
+异步通知:某种条件成立后会产生SIGIO信号，内核将SIGIO信号注册给指定的进程，然后进程去捕捉SIGO信号。
+
+void func(int signo)
+{
+	
+}
+
+signal(SIGIO,func);
+
+flag = fcntl(fd,F_GETFL);
+flag |= O_ASYNC;
+fcntl(fd,F_SETFL,flag);//文件描述符具备异步属性，默认使用SIGIO
+fcntl(fd,F_SETOWN,进程号);//通知内核给指定进程注册SIGIO
+————————————————————————————————————————————————————————————————————————————————————
+什么是多路复用？
+tcp循环服务器——缺点是:单进程，一个客户端未退出，其他客户端不能建立连接
+tcp并发服务器——缺点:如果有大量客户端，则会大量产生子进程，进而大量占用内存空间。
+
+我们可以不可以让一个单进程服务器可以同时连接多个客户端？
+可以使用select实现，也可以使用epoll接口实现，也可以使用poll接口实现
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,fd_set *exceptfds, struct timeval *timeout);
+功能:如果没有就绪的文件描述符产生则阻塞
+	 如果有文件描述符就绪则唤醒，唤醒后这个函数会清零所有的未就绪文件描述符
+	 
+什么叫做就绪？文件描述符事先可能不存在，可能存在，但是它未操作数据就属于未就绪。
+			  当文件描述符可以索引到数据时表明文件描述符就绪了。
+			  			  
+参数1:进程中最大文件描述符+1
+参数2:读表
+参数3:写表
+参数4:异常表
+什么叫做表?表的类型是结构体，结构体中包含了一个整型数组，这个数组存文件描述符
+每张表都可能存了一堆文件描述符
+读表:一堆文件描述符都是用来读/接收数据。
+参数5:超时时间
+struct timeval tv;
+tv.tv_sec = 5;
+tv.tv_usec = 0;
+超时时间设置为5秒
+如果不需要超时则传递NULL
+
+返回值:正确返回就绪的文件描述符个数
+	   超时返回0
+	   错误返回-1
+
+内核是如何操作select函数的？
+1、将所有的文件描述符表拷贝到内核中
+2、将用户空间所有文件描述符清零
+3、实现了阻塞，以及唤醒机制
+4、调用底层接口(内核某些驱动实现)，返回一些标志位
+5、内核会通过这些标志位来判断是读还是写。
+6、如果出现了读或者写，计算出读和写的总个数，最终返回给select函数
+7、将所有的文件描述符(就绪的，除了就绪之外还会有一堆0)拷贝回用户空间
+
+缺点:拷贝2次表,内核并没有直接告诉用户程序哪个具体的文件描述符就绪了(用户需要自己判断谁就绪)。
+void FD_ZERO(fd_set *set);
+功能:对文件描述符表清零
+
+void FD_SET(int fd, fd_set *set);
+功能:将指定的文件描述符加入表中
+
+int  FD_ISSET(int fd, fd_set *set);//在唤醒后使用，如果文件描述符在表中说明就是就绪的
+功能:判断文件描述符是否在表中，返回值非0时说明在表中
+
+void FD_CLR(int fd, fd_set *set);
+功能:将指定文件描述符从表中删除
+
+————————————————————————————————————————————————————————————————————————————————————
+epoll机制:1G的内存上，大概有10万个客户端
+
+内核中的机制:
+epoll只会拷贝一次文件描述符表，当有就绪的文件描述出现后，epoll会直接将就绪的文件描述符存放到指定空间中。
+效率也会高于select或者poll
+在内核中会建立一个红黑树(二叉树),还会创建一个双向循环链表
+
+int epoll_create(int size);
+功能:产生一个文件描述符(句柄)，用来通知内核我想使用epll接口
+参数:很多资料讲，这个值可以忽略。当前环境下这个参数必须要传递一个任意的非负整数，也不能是0
+返回值:是一个文件描述符，用来索引其他epoll接口。	 
+
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+参数1:epoll_create返回值
+参数2:
+三种情况:EPOLL_CTL_ADD:添加功能
+		 EPOLL_CTL_MOD:修改功能
+		 EPOLL_CTL_DEL:删除功能
+参数3:epoll需要监控的具体文件描述符
+参数4:
+typedef union epoll_data {
+               void        *ptr;
+               int          fd;和参数3一致
+               uint32_t     u32;
+               uint64_t     u64;
+           } epoll_data_t;
+
+struct epoll_event {
+    uint32_t     events;      /* Epoll events */
+    epoll_data_t data;        /* User data variable */
+};
+events代表了事件操作的类型:
+EPOLLIN:代表了读事件
+EPOLLOUT:代表了写事件
+
+data.fd代表的是具体操作哪个文件描述符
+
+int epoll_wait(int epfd, struct epoll_event *events,int maxevents, int timeout);
+//作用类似于select，如果没有就绪文件描述符则阻塞，如果有就绪文件描述符直接唤醒。
+参数1:epoll_create返回值
+参数2:本质应该是一个空间，用来存放就绪的文件描述符
+	   struct epoll_event events[100];
+参数3:100
+参数4:超时时间，时间值是毫秒
+	  如果传递0，当前函数不会阻塞，直接返回。
+	  如果传递-1，会一直阻塞，有就绪文件描述符会唤醒。
+返回值:正确返回就绪文件描述符个数
+	   如果超时了返回0
+	   出错返回-1

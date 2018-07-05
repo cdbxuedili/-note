@@ -1,0 +1,206 @@
+输入子系统:
+		  应用程序
+——————————————————————————————
+输入子系统:事件处理层
+		   核心层
+		   设备驱动层
+——————————————————————————————————
+		    硬件
+
+事件处理层:给应用程序提供接口	
+核心层:向上给事件处理曾提供接口，向下给设备驱动层提供接口
+设备驱动层:操作硬件		
+事件处理层和核心层已经被系统初始化好了。作为程序猿来说需要了解并且掌握上两层的机制。
+
+讲上面三层之前回顾一下基于platform总线的按键驱动是如何实现的。
+
+8、中断处理函数中
+	唤醒阻塞
+
+7、执行read函数
+	在read中需要阻塞
+
+6、file_operations中实现open、read、write等函数接口
+	
+5、执行probe函数
+   {
+		搭建字符设备框架(cdev、file_operations)
+		注册中断号、初始化中断处理函数	
+   }
+4、struct platform_driver drv = {
+	通过匹配设备树执行probe函数,
+};
+
+1、模块加载函数
+	platform_driver_register();
+2、模块卸载函数
+	platform_driver_unregister();
+3、模块的声明
+
+继续学习输入子系统，从输入子系统的核心层入手:drivers/input/input.c
+2437 subsys_initcall(input_init);
+		||
+		\/
+2405     err = class_register(&input_class);                                    
+2411     err = input_proc_init();
+2415     err = register_chrdev_region(MKDEV(INPUT_MAJOR, 0),
+2416                      INPUT_MAX_CHAR_DEVICES, "input");
+
+		||
+		\/
+先进入class_register //在sys/class下面创建一个input文件夹
+进入input_proc_init //在proc/bus下创建input文件夹，在input下创建deivces和handlers文件
+查看INPUT_MAJOR为13，如果我们调用输入子系统，操作的字符设备主设备号一定是13
+在Documatation/devices.txt中
+ 488  13 char    Input core
+ 489           0 = /dev/input/js0    First joystick  游戏手柄
+ 490           1 = /dev/input/js1    Second joystick
+ 491             ...
+ 492          32 = /dev/input/mouse0 First mouse   鼠标
+ 493          33 = /dev/input/mouse1 Second mouse
+ 494             ...
+ 495          63 = /dev/input/mice   Unified mouse
+ 496          64 = /dev/input/event0 First event queue 按键类事件                         
+ 497          65 = /dev/input/event1 Second event queue
+
+上面我们知道应用程序如果调用输入子系统，那么需要open("/dev/input/event0")，在输入子系统中最终要找到open、read、write等函数的实现。
+
+直接在input.c文件中寻找input_register_device();但是执行这个接口前必须先执行
+input_allocate_device();
+
+注意:以后在实现一些高级驱动时都会经历4个基本过程
+1、为用到的结构申请空间 input_allocate_device()
+2、初始化一些资源
+3、操作硬件
+4、注册   input_register_device()
+
+先寻找 input_allocate_device() 做了一些基本的初始化操作。
+再寻找 input_register_device()
+==》2138         input_attach_handler(dev, handler); 
+						||
+						\/
+			991     error = handler->connect(handler, dev, id);  	
+					调用了connect函数指针，但是这个指针没有在本文件内初始化
+
+					
+
+进入drivers/input/evdev.c 
+1202 static struct input_handler evdev_handler = {
+1203     .event      = evdev_event,
+1204     .events     = evdev_events,
+1205     .connect    = evdev_connect,                                           
+1206     .disconnect = evdev_disconnect,
+1207     .legacy_minors  = true,
+1208     .minor      = EVDEV_MINOR_BASE,
+1209     .name       = "evdev",
+1210     .id_table   = evdev_ids,
+1211 };
+
+上面执行handler->connect();其实就是执行当前evdev_connect函数
+进入evdev_connect函数中：
+1137     init_waitqueue_head(&evdev->wait);//初始化等待队列，为了后面阻塞使用
+1161     cdev_init(&evdev->cdev, &evdev_fops);                                  
+1163     error = cdev_add(&evdev->cdev, evdev->dev.devt, 1);
+
+进入evdev_ops结构体中:
+1065 static const struct file_operations evdev_fops = {
+1066     .owner      = THIS_MODULE,
+1067     .read       = evdev_read,
+1068     .write      = evdev_write,
+1069     .poll       = evdev_poll,
+1070     .open       = evdev_open,
+1071     .release    = evdev_release,                                           
+1072     .unlocked_ioctl = evdev_ioctl,
+1073 #ifdef CONFIG_COMPAT
+1074     .compat_ioctl   = evdev_ioctl_compat,
+1075 #endif
+1076     .fasync     = evdev_fasync,
+1077     .flush      = evdev_flush,
+1078     .llseek     = no_llseek,
+1079 };
+如果想操作按键，需要调用这里的evdev_read,其实也可以调用evdev_poll
+进入evdev_read函数：
+	514             if (input_event_to_user(buffer + read, &event))调用了copy_to_user()
+	524             error = wait_event_interruptible();实现阻塞
+以上代码其实都是input_register_device()函数接口调用实现的。
+
+接下来需要知道如何才能调用到唤醒机制，肯定需要调用wake_up_interruptible();
+找一个内核写好的例子:drivers/input/keyboard/gpio_keys.c
+739         error = gpio_keys_setup_key(pdev, input, bdata, button);
+							||
+							\/
+			490         setup_timer(&bdata->timer,
+			491                 gpio_keys_irq_timer, (unsigned long)bdata); 		
+			gpio_keys_irq_timer中断处理函数
+					||
+					\/
+			385         input_event(input, EV_KEY, bdata->button->code, 0); 
+							||
+							\/
+				429         input_handle_event(dev, type, code, value);
+								||
+								\/
+						394    input_pass_values(dev, dev->vals,dev->num_vals);
+									||
+									\/
+							143 count = input_to_handler(handle, vals, count);
+											||
+											\/
+									117   handler->events(handle, vals, count);
+									handler是evdev.c中的结构体。
+接下来回到evdev.c中执行:
+1204     .events     = evdev_events, 
+						||
+						\/
+					212  evdev_pass_values(client, vals, count, time_mono, time_real);
+							||
+							\/
+						191   wake_up_interruptible(&evdev->wait);
+小结:如果需要使用唤醒机制只需要调用到input_event()函数接口
+总结:通过输入子系统实现按键驱动，分别需要用到3个函数
+	 input_allocate_device();初始化
+	 input_register_device();调用了字符设备框架接口实现read，read有阻塞
+	 input_event();有唤醒作用
+
+使用输入子系统基本流程:
+1、为input_dev结构体申请空间 input_allocate_device()
+2、  #define EV_KEY          0x01 用于代表按键类事件
+     下面的宏都是按键类事件可以使用的值。
+	 212 #define KEY_RESERVED        0
+	 213 #define KEY_ESC         1
+	 214 #define KEY_1           2
+	 215 #define KEY_2           3
+	 216 #define KEY_3           4
+	 217 #define KEY_4           5                                                  
+	 218 #define KEY_5           6
+	
+	设置按键类型、按键值。
+	vim -t input_dev 
+	129     unsigned long evbit[BITS_TO_LONGS(EV_CNT)];//存放事件类型的
+	130     unsigned long keybit[BITS_TO_LONGS(KEY_CNT)];//存放按键类型中具体值
+	
+	set_bit(EV_KEY,evbit);//将EV_KEY存放给evbit
+	set_bit(KEY_1,keybit);//存放按键事件的KEY_1值
+	
+3、获取中断、注册中断、执行中断处理函数。在中断处理函数中除了唤醒还需要上报按键的值。
+   按键值操作系统已经规定死。
+   21 void input_event(struct input_dev *dev,unsigned int type, unsigned int code, int value)
+   参数1:input_allocate_device函数的返回值
+   参数2:类型 比如EV_KEY
+   参数3:某个具体类型中使用的具体值。比如KEY_1
+   参数4:代表具体的事件状态。比如按键，1代表按下和0代表松开
+   
+4、注册   input_register_device()	 
+通过输入子系统实现按键驱动
+
+
+ 68 static inline int gpio_to_irq(unsigned int gpio) 
+ 返回值是中断号，形参是引脚编号
+ 
+ 53 static inline int gpio_get_value(unsigned int gpio)
+ 形参是引脚编号，返回值是寄存器的值
+
+ int gpio_request(unsigned gpio, const char *label); 
+ 将获取的引脚编号注册到内核中
+ 参数1:引脚编号
+ 参数2:引脚的别名(可以不用)

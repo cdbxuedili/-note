@@ -1,0 +1,325 @@
+中断上下半部:将一个中断对应了2个处理函数，第一个执行的中断处理函数上半部，用来处理紧急事件;
+第二个执行的中断处理函数是下半部，用来处理非紧急事件。
+
+三种方法实现下半部:软中断、tasklet、工作队列。
+内核中实现的软中断全部已经被占用了。
+
+tasklet_init();
+tasklet_schedule();
+
+INIT_WORK();
+schedule_work();
+
+
+ADC设备树如何添加？
+adc{
+	compatible = "字符串";
+	reg = <0x126C0000 0x20>;
+	interrupt-parent = <&combiner>;
+	interrupts = <10 3>;
+};
+
+ADC:模拟数字转换器
+ADCCON   1 << 16 | 1 << 14 | 值 << 6 
+ADCDAT   
+CLRINTADC
+ADCMUX
+
+1、platform架构
+2、字符设备框架
+3、probe中实现ADCCON、ADCMUX的寄存器设置 获取寄存器地址 获取中断号
+   读函数中实现  设置转换开始位 阻塞 
+   中断处理函数  清除中断  唤醒
+   
+I2C总线: 数据线、时钟线。
+
+起始信号:时钟线保持高电平，数据线由高到低跳变。
+结束信号:时钟线保持高电平，数据线由低到高跳变。
+
+起始信号后接了8位数据，这8位数据——高7位是从机地址，第八位数据方向。
+通信情况:
+1、主机一直给从机发送数据 
+	起始信号 7地址0 + 0 + 8 + 0 + 8 + 0 结束信号
+2、主机一直接收从机数据
+	起始信号 7位地址1 + 0 + 8位数据 + 0 .... 8位数据 + 0 结束信号
+3、主机先给从机发送数据再继续接收从机数据
+	起始信号 7地址0  0  8位数据 0 起始信号 7地址1 0  从主8数据  主从0 结束信号
+
+操作系统中I2C子系统特点:
+设备驱动层   自己实现
+	知道发送/接收哪些数据，但是不知道如何发送/接收
+核心层   内核实现
+	提供交互接口
+总线驱动层 厂家实现 drivers/i2c/busses/i2c-s3c2410.c 
+	知道如何发送/接收数据，但是不知道需要操作哪些数据
+	设置起始信号、使能IRQ、设置ACK、读、写
+
+要想使用drivers/i2c/busses/i2c-s3c2410.c，保证这个文件已经被编译进uImage中了。 
+669     tristate "S3C2410 I2C Driver" 	
+5 menu "I2C Hardware Bus support"
+6     tristate "I2C support" 
+1 menu "Device Drivers"
+根据上面内容反过来在menuconfig中查询。
+
+I2C核心层:drivers/i2c/i2c-core.c 
+1694 postcore_initcall(i2c_init); i2c核心层入口
+
+1654 static int __init i2c_init(void)
+1655 {
+1656     int retval;
+1657 
+1658     retval = bus_register(&i2c_bus_type);
+		 在sys/bus/创建一个i2c文件夹、在i2c文件夹中分别创建devices、drivers、其他属性文件
+		 454 struct bus_type i2c_bus_type = {                                           
+		 455     .name       = "i2c",
+		 456     .match      = i2c_device_match,
+		 457     .probe      = i2c_device_probe,
+		 458     .remove     = i2c_device_remove,
+		 459     .shutdown   = i2c_device_shutdown,
+		 460     .pm     = &i2c_device_pm_ops,
+		 461 };      
+	
+1668     retval = i2c_add_driver(&dummy_driver);
+		 i2c_add_driver();添加驱动到i2c总线上
+		 struct i2c_driver;这个结构体用来描述i2c从机驱动
+		 
+1671     return 0;
+}
+
+512 #define i2c_add_driver(driver) \
+513     i2c_register_driver(THIS_MODULE, driver) 
+				||
+				\/
+1547     res = driver_register(&driver->driver);  
+					||
+					\/
+160     other = driver_find(drv->name, drv->bus);  
+		判断需要注册的驱动在i2c驱动链表中是否已经存在
+167     ret = bus_add_driver(drv); 
+				||
+				\/
+		692         error = driver_attach(drv);
+							||
+							\/
+			479     return bus_for_each_dev(drv->bus, NULL, drv, __driver_attach);
+							||
+							\/
+					310     while ((dev = next_device(&i)) && !error)
+					311         error = fn(dev, data);
+					如果条件成立执行bus_for_each_dev第四个参数，最终执行__driver_attach
+
+进入__driver_attach接口中：
+453     if (!driver_match_device(drv, dev)) //判断i2c设备和i2c驱动是否匹配
+454         return 0;
+
+459     if (!dev->driver)
+460         driver_probe_device(drv, dev); //如果匹配执行driver_probe_device                                     
+
+————————————————————————————————————————————————————————————————
+进入driver_match_device函数中：
+120     return drv->bus->match ? drv->bus->match(dev, drv) : 1; 
+
+drv->bus->match就是struct bus_type i2c_bus_type = 
+{
+		.match      = i2c_device_match,
+};
+所以drv->bus->match条件成立，执行 drv->bus->match(dev, drv),本质就是在执行
+i2c_device_match接口
+
+进入i2c_device_match：
+  80     struct i2c_client   *client = i2c_verify_client(dev);//描述i2c设备结构体
+  81     struct i2c_driver   *driver;
+  82 
+  83     if (!client)
+  84         return 0;
+  85 
+  86     /* Attempt an OF style match */
+  87     if (of_driver_match_device(dev, drv))
+  88         return 1;
+  89 
+  90     /* Then ACPI style match */
+  91     if (acpi_driver_match_device(dev, drv))                                
+  92         return 1;
+  93 
+  94     driver = to_i2c_driver(drv);
+  95     /* match on an id table if there is one */
+  96     if (driver->id_table)
+  97         return i2c_match_id(driver->id_table, client) != NULL;
+			 i2c驱动和i2c设备中匹配需要使用一个相同字符串
+———————————————————————————————————————————————————————————————————————————— 
+进入driver_probe_device:
+382     ret = really_probe(dev, drv);
+				||
+				\/
+	287     if (dev->bus->probe) { 判断i2c_bus_type结构体的probe成员是否被赋值。实际已经被赋值为i2c_device_probe                                                 
+	288         ret = dev->bus->probe(dev);在执行i2c_device_probe
+	
+进入i2c_device_probe接口:
+263     status = driver->probe(client, i2c_match_id(driver->id_table, client));
+		说明讲了半天最终就是调用了我们自己驱动中i2c_driver中的probe成员，probe要想正常
+		运行i2c_match_id必须要匹配成功，匹配成功的前提是i2c_client中有一个name，同时
+		i2c_driver中的id_table结构体中也必须有一个name成员。
+		
+总结:i2c_add_driver注册i2c驱动到i2c总线。
+	 struct i2c_driver是用来描述i2c驱动
+	 struct i2c_client描述i2c设备
+	 i2c驱动和i2c设备要想执行probe，必须要通过(设备树以及id_table中的name)匹配.
+
+写驱动前先明确操作哪种设备，需要对这种设备添加硬件信息。
+1、添加平台代码(在exynos4412平台上已经不使用了)
+	104 static struct i2c_board_info i2c_devs0[] __initdata = {
+	105     {I2C_BOARD_INFO("wm8580", 0x1b),},  	   //I2C设备信息                                    
+	106 };
+
+	271 struct i2c_board_info {
+	272     char        type[I2C_NAME_SIZE];                                        
+	273     unsigned short  flags;
+	274     unsigned short  addr;
+	275     void        *platform_data;
+	276     struct dev_archdata *archdata;
+	277     struct device_node *of_node;
+	278     struct acpi_dev_node acpi_node;
+	279     int     irq;
+	280 };
+
+	292 #define I2C_BOARD_INFO(dev_type, dev_addr) \                                
+	293     .type = dev_type, .addr = (dev_addr)
+	
+	目的为了告诉你们:添加硬件信息只关心type和addr，老的芯片系列中直接使用的是平台代码，
+	平台代码使用到了i2c_board_info结构体，但是我们exynos4412芯片系列中使用i2c_client结
+	构体描述硬件信息，所以我们必须要知道i2c_board_info和i2c_client的关系。
+	
+	回到i2c总线驱动中:
+	1072 static int s3c24xx_i2c_probe(struct platform_device *pdev)  
+					||
+					\/
+		1196     ret = i2c_add_numbered_adapter(&i2c->adap);
+					||
+					\/
+			1388     return __i2c_add_numbered_adapter(adap); 
+							||
+							\/
+				1317     return i2c_register_adapter(adap);
+								||
+								\/
+				1283         i2c_scan_static_board_info(adap); 
+								||
+								\/
+				973	i2c_new_device(adapter,&devinfo->board_info))
+							||
+							\/
+				 673     client->flags = info->flags;                                           
+				 674     client->addr = info->addr;
+				 675     client->irq = info->irq;
+				 i2c_board_info中的信息最终被存放给了i2c_client
+
+2、操作设备树	 
+查看MPU6050的原理图发现添加设备树，最多添加3种功能。
+如何添加？抄。
+先参考自己设备树文件中的i2c@13860000节点信息。
+还可以查看Documentation/devicetree/bindings/i2c/i2c-s3c2410.txt
+ 38     i2c@13870000 {
+ 39         compatible = "samsung,s3c2440-i2c";
+ 40         reg = <0x13870000 0x100>;
+ 41         interrupts = <345>;
+ 42         samsung,i2c-sda-delay = <100>;
+ 43         samsung,i2c-max-bus-freq = <100000>;
+ 44         /* Samsung GPIO variant begins here */
+ 45         gpios = <&gpd1 2 0 /* SDA */                                        
+ 46              &gpd1 3 0 /* SCL */>;
+ 47         /* Samsung GPIO variant ends here */
+ 48         /* Pinctrl variant begins here */
+ 49         pinctrl-0 = <&i2c3_bus>;
+ 50         pinctrl-names = "default";
+ 51         /* Pinctrl variant ends here */
+ 52         #address-cells = <1>;
+ 53         #size-cells = <0>;
+ 54 
+ 55         wm8994@1a {
+ 56             compatible = "wlf,wm8994";
+ 57             reg = <0x1a>;
+ 58         };
+ 59     };
+
+底板中寻找到mpu6050的一个引脚叫做I2C5_SDA，编号5会对应芯片手册中的I2CCON5的地址，查看手册发现I2CCON5的基地址为138B0000，所以我们自己的mpu6050接到了i2c5适配器。设备树节点如下:
+i2c@138B0000{
+	#address-cells = <1>;//代表了当前节点的子节点reg属性需要1个地址
+	#size-cells = <0>;//代表了当前节点的子节点reg属性需要0个偏移量 
+	samsung,i2c-sda-delay = <100>;//I2C数据线高低电平跳变时需要的延时时间100nm
+	samsung,i2c-max-bus-freq = <100000>;//规定了I2C总线接的设备最大频率为100k
+	pinctrl-0 = <&i2c5_bus>;
+	pinctrl-names = "default";
+	status = "okay";//代表当前设备的状态，okay代表设备可用
+};
+pinctrl-names = "a","b","c";//当前设备操作的引脚可能有3个状态可能由不同的引脚
+来控制。
+pinctrl-0 控制的就是a状态
+pinctrl-1 控制b状态
+pinctrl-2 控制c状态
+当前pinctl-0控制的就是default这种状态，具体的控制操作由i2c5_bus标号对应的节点完成的。
+
+进入arch/arm/boot/dts/exyno4x12-pinctl.dtsi 
+219         i2c5_bus: i2c5-bus {                                                
+220             samsung,pins = "gpb-2", "gpb-3";
+221             samsung,pin-function = <3>;
+222             samsung,pin-pud = <3>;
+223             samsung,pin-drv = <0>;
+224         };
+samsung,pins = "gpb-2", "gpb-3";//查看核心板原理图
+			  控制SDA线  SCL引脚
+
+samsung,pin-function = <3>;GPBCON的第二2个部分和第三个部分值为3.
+查看芯片手册GPBCON寄存器的第二和第三部分，值3分别代表I2C5的数据线和时钟线
+
+samsung,pin-pud = <3>; 查看GPBPUD，当值为3时使能上拉。
+samsung,pin-drv = <0>; 查看GPBDRV，0代表的是1倍的驱动强度(电流大小)。
+
+又因为MPU6050设备是挂接到I2C5总线上的，所以MPU6050的设备树信息应该包含于I2C5节点
+
+i2c@138B0000{
+	#address-cells = <1>;//代表了当前节点的子节点reg属性需要1个地址
+	#size-cells = <0>;//代表了当前节点的子节点reg属性需要0个偏移量 
+	samsung,i2c-sda-delay = <100>;//I2C数据线高低电平跳变时需要的延时时间100nm
+	samsung,i2c-max-bus-freq = <100000>;//规定了I2C总线接的设备最大频率为100k
+	pinctrl-0 = <&i2c5_bus>;
+	pinctrl-names = "default";
+	status = "okay";//代表当前设备的状态，okay代表设备可用
+	
+	mpu6050@68{
+		compatible = "fs4412,mpu6050";
+		reg = <0x68>;
+	};
+};
+
+实现设备驱动(mpu6050——三轴加速度、三轴角速度、温度)
+
+1、搭建i2c驱动框架
+	i2c_add_driver();
+	i2c_del_driver();
+	
+2、搭建字符设备框架
+
+
+
+1745 int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+参数1:i2c适配器首地址
+参数2:struct i2c_msg 结构体数组首地址，数组元素有几个由起始信号个数决定
+参数3:struct i2c_msg 结构体数组元素个数(起始信号个数)
+
+
+ 68 struct i2c_msg {
+ 69     __u16 addr; 从机地址 
+ 70     __u16 flags; 0代表写 1代表读(主机的角度)
+
+ 79     __u16 len;  数据的个数，由时序决定
+ 80     __u8 *buf;  存放数据的空间首地址
+ 81 };
+ 
+To write the internal MPU-60X0 registers, the master transmits the start condition (S), followed by the I 2 C
+address and the write bit (0). At the 9 th clock cycle (when the clock is high), the MPU-60X0 acknowledges the
+transfer. Then the master puts the register address (RA) on the bus. After the MPU-60X0 acknowledges the
+reception of the register address, the master puts the register data onto the bus. This is followed by the ACK
+signal, and data transfer may be concluded by the stop condition (P). 
+上面的作用是主机写数据，除了起始、结束信号、应答信号、从机地址、方向位之外，剩下的就是数据的个数。
+
+	 

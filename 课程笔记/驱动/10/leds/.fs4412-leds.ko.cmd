@@ -1,0 +1,1 @@
+cmd_/home/linux/myself/leds/fs4412-leds.ko := arm-none-linux-gnueabi-ld -EL -r  -T /home/linux/linux-3.14/scripts/module-common.lds --build-id  -o /home/linux/myself/leds/fs4412-leds.ko /home/linux/myself/leds/fs4412-leds.o /home/linux/myself/leds/fs4412-leds.mod.o

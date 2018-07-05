@@ -1,0 +1,448 @@
+如何消除抖动
+init_timer(struct timer_list *);//初始化定时器
+	初始化时必须要设置定时器中断处理函数
+add_timer();注册定时器
+mod_timer(,时间值); 可以是绝对时间，相对时间。几乎使用的都是相对时间jiffies
+			jiffies代表了从系统开机到当前位置的时间差
+			jiffies + 30 定时30ms  也可以  jiffies + 3 * HZ / 100
+del_timer();删除定时器
+
+多路复用:
+int select(文件描述符最大值 + 1，读表，写表，异常表，超时时间);
+返回值:> 0 说明有就绪的文件描述符
+	   = 0 超时
+	   < 0 出错
+	   
+如果没有就绪的文件描述符则阻塞，如果有就绪的文件描述符则唤醒，并且同时删除未就绪的fd
+
+FD_SET();将指定文件描述符加入到表中
+FD_ISSET();判断文件描述符是否在表中
+FD_ZERO();清空文件描述符表
+FD_CLR();删除指定文件描述符
+
+上层的select调用了底层的poll接口
+
+异步通知:
+应用层:
+
+void func(int signo)
+{
+	if(signo == SIGIO)
+	{
+		功能
+	}
+}
+int main()
+{
+	signal(SIGIO,func);
+
+	flag = fcntl(fd,F_GETFL);
+	flag |= FASYNC;
+	fcntl(fd,F_SETFL,flag);
+	fcntl(fd,F_SETOWN,getpid());
+}
+
+驱动层:
+struct fasync_struct *fa;
+
+中断处理函数()
+{
+	kill_fasync(&fa,SIGIO,POLLIN);//给指定进程注册SIGIO信号
+}
+
+int fasync(int fd,struct file *filp,int on)
+{
+
+	fasync_helper(fd,filp,on,&fa);//对指定结构体成员做了一些赋值
+	kill_fasync(&fa,SIGIO,POLLIN)
+}
+
+中断上、下半部
+将曾经我们所认为的中断处理函数，分成了2个部分。
+
+上半部:处理紧急事件
+	1、直接操作硬件
+	2、对时间敏感
+	3、不能被其他中断打断的操作
+
+下半部:处理非紧急事件
+	软中断   小任务   工作队列
+	软中断几乎用不上，软中断所使用的软中断号在内核中已经完全被占用了。
+	
+	小任务——其实是对软中断的二次封装，主要运行在中断上下文。
+	tasklet_init();
+	tasklet_schedule();通常用于上半部返回前
+	
+	工作队列——运行在进程上下文
+	INIT_WORK();
+	schedule_work();
+	
+	
+	小任务一般用于处理对时间敏感的操作，不可以使用互斥锁。
+	工作队列可以出现阻塞函数，可以使用自旋锁也可以使用互斥锁。
+————————————————————————————————————————————————————————————————————————————————
+adc驱动——使用中断的方式来实现，设备树使用和按键的设备树使用不一样。
+
+ADCCON:
+	[0] 设置为1代表开始转换A/D值(如果开始转换又说明会产生中断)
+	[13,6] 设置的是预分频值，范围19 - 255
+	[14] 使能预分频值
+	[16] 输出精度的选择   0 10位精度     1 12位精度
+	
+ADCDAT: 
+	[11:0] 用来存放获取到的转换数据
+	
+CLRINTADC:清除中断   写入任意值
+ADCMUX:代表AD转换通道
+		查看原理图XadcAIN3说明使用的是转换通道3
+
+以上内容了解后，设备树中肯定包含:
+adc{
+	compatible = "fs4421,adc";
+	reg = <0x126c0000 0x20>;
+	
+	interrupt-parent = <>;
+	interrupts = <>;
+};
+
+adc原理图中没有中断引脚，此时我们如何添加中断信息？combiner中断控制器
+芯片手册第十章，其中中断组合器的第十组、第三位描述了ADC中断
+
+vi arch/arm/boot/dts/exynos4.dtsi 
+95     combiner: interrupt-controller@10440000 {
+ 96         compatible = "samsung,exynos4210-combiner";
+ 97         #interrupt-cells = <2>;当前节点的中断子节点中interrupts属性有2个值
+ 98         interrupt-controller;
+ 99         reg = <0x10440000 0x1000>;
+100     };
+
+vi Documentation/devicetree/bindings/arm/samsung/interrupt-combiner.txt
+23 - #interrupt-cells: should be <2>. The meaning of the cells are
+ 24     * First Cell: Combiner Group Number.
+ 25     * Second Cell: Interrupt number within the group.
+
+所以:自己的设备树信息
+adc{
+	compatible = "fs4421,adc";
+	reg = <0x126c0000 0x20>;
+	
+	interrupt-parent = <&combiner>;
+	interrupts = <10 3>;
+};
+——————————————————————————————————————————————————————————————————————————————————————
+I2C硬件知识：
+I2C总线协议、数据帧封装、内核中的I2C子系统
+
+I2C有两根线:数据线、时钟线
+
+硬件特性:I2C总线和cpu以及外设有什么关系
+
+通常i2c控制器当做主机使用，外围设备当左从机使用。
+
+从机和主机之间需要通信，如何通信？首先需要了解一些信号
+起始信号:由主机产生，时钟线为高电平，数据线由高到低跳变。
+结束信号:由主机产生，时钟线为高电平，数据线由低到高跳变。
+
+每个起始信号的后面都会跟上7位的从机地址，还有一个读写位。
+
+7位从机地址需要查看具体的外设芯片手册 mpu6050datasheet
+The slave address of the MPU-60X0 is b110100X which is 7 bits long. The LSB bit of the 7 bit address is
+determined by the logic level on pin AD0.
+从机地址的前6位固定了，最后一位是可变的，最后一位由AD0引脚决定，查看原理图后发现AD0引脚接地，所以此时最后一位就是0，从机地址二进制1101000
+
+读写位:都是站在主机的角度考虑。
+	   如果是0代表主机给从机发送数据
+	   如果是1代表主机接收从机发送的数据
+	   
+每当发送完8位数据后，在第九个时钟周期都是应答信号。
+如果应答位的数据线为0(保证时钟线为高电平)说明成功应答，如果应答位是1说明非应答。
+
+数据帧的封装:
+1、主机一直接收数据
+	主机产生起始信号  0x68  1  + 0(从机给主机的应答)  +  8位数据(从机给主机)  + 0主机给从机应答 + 8位数据(从机给主机)  + 0主机给从机应答 ... + 结束信号
+	
+2、主机一直发送数据
+	主机产生起始信号  0x68  0  + 0(从机给主机的应答) + 8位数据(主机给从机) + 0从机给主机应答 + 8位数据(主机给从机)  + 0从机给主机应答 ... + 结束信号
+
+3、主机先发送数据，再接收数据
+	主机产生起始信号  0x68  0  + 0(从机给主机应答) + 8位数据(主机给从机) 0从机给主机应答
+	...... 主机重新产生起始信号 0x68  1 + 0(从机给主机的应答) + 8位数据(从机给主机) + 0
+	.... + 结束信号
+
+一共需要接收或者发送多少字节的数据，由外设的i2c总线的时序来决定。
+To write the internal MPU-60X0 registers, the master transmits the start condition (S), followed by the I 2 C
+address and the write bit (0). At the 9 th clock cycle (when the clock is high), the MPU-60X0 acknowledges the
+transfer. Then the master puts the register address (RA) on the bus. After the MPU-60X0 acknowledges the
+reception of the register address, the master puts the register data onto the bus. This is followed by the ACK
+signal, and data transfer may be concluded by the stop condition (P). 
+mpu6050的具体时序描述
+写时序:
+起始信号 + 0x68 0 + 0 + 8位的从机的寄存器地址 + 0 + 往寄存器中写入8位的数据 + 0+ 结束信号
+
+
+To read the internal MPU-60X0 registers, the master sends a start condition, followed by the I 2 C address and
+a write bit, and then the register address that is going to be read. Upon receiving the ACK signal from the
+MPU-60X0, the master transmits a start signal followed by the slave address and read bit. As a result, the
+MPU-60X0 sends an ACK signal and the data. The communication ends with a not acknowledge (NACK)
+signal and a stop bit from master.
+读时序:
+起始信号 + 0x68 0 + ACK + 8位的寄存器地址 + ACK + 起始信号 + 0x68 1 + ACK + 8位数据 + NACK + 结束信号
+以上内容在实现外设驱动过程中一定会用到。
+
+————————————————————————————————————————————————————————————————————————————————————————
+内核中的I2C子系统：
+设备驱动:知道操作哪些数据，但是不知道如何操作数据。(有很多钱，不知道怎么花) 自己实现
+核心层:承上启下 (中介)  内核实现
+总线驱动:知道如何操作数据，但是不知道操作哪些数据。(没钱但是知道怎么花) 厂家实现
+
+drivers/i2c/busses/i2c-s3c2410.c对于exynos系列是通用的。
+vi drivers/i2c/busses/i2c-s3c2410.c
+保证这个文件被编译到内核镜像中 选中为*
+第一步:vi drivers/i2c/busses/Makefile
+67 obj-$(CONFIG_I2C_S3C2410)   += i2c-s3c2410.o
+说明在drivers/i2c/busses/Kconfig中一定会存在config I2C_S3C2410
+
+第二步:进入到drivers/i2c/busses/Kconfig，寻找config I2C_S3C2410对应的选项名称
+ 668 config I2C_S3C2410                                                         
+ 669     tristate "S3C2410 I2C Driver"
+ 如果i2c-s3c2410.c需要被编译进内核，必须选中S3C2410 I2C Driver
+ 
+第三步:确定S3C2410 I2C Driver的位置
+	进入make menuconfig搜索I2C_S3C2410
+    -> Device Drivers                                               
+         -> I2C support (I2C [=y])                                       
+			-> I2C Hardware Bus support
+			  -> S3C2410 I2C Driver 默认已经被选中
+
+源码:			  
+1286 static int __init i2c_adap_s3c_init(void) 加载函数
+1287 {
+1288     return platform_driver_register(&s3c24xx_i2c_driver);
+1289 }
+1290 subsys_initcall(i2c_adap_s3c_init);	
+
+1274 static struct platform_driver s3c24xx_i2c_driver = {                       
+1275     .probe      = s3c24xx_i2c_probe,
+1276     .remove     = s3c24xx_i2c_remove,
+1277     .id_table   = s3c24xx_driver_ids,
+1278     .driver     = {
+1279         .owner  = THIS_MODULE,
+1280         .name   = "s3c-i2c",
+1281         .pm = S3C24XX_DEV_PM_OPS,
+1282         .of_match_table = of_match_ptr(s3c24xx_i2c_match),
+1283     },
+1284 };
+		 
+1072 static int s3c24xx_i2c_probe(struct platform_device *pdev)
+{
+1107     i2c->adap.algo    = &s3c24xx_i2c_algorithm;
+}
+
+787 static const struct i2c_algorithm s3c24xx_i2c_algorithm = {                
+ 788     .master_xfer        = s3c24xx_i2c_xfer,
+ 789     .functionality      = s3c24xx_i2c_func,
+ 790 };
+
+748 static int s3c24xx_i2c_xfer(struct i2c_adapter *adap,                      
+ 749             struct i2c_msg *msgs, int num)
+ {
+		760      ret = s3c24xx_i2c_doxfer(i2c, msgs, num);
+ }
+ 
+ 686 static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
+ 687                   struct i2c_msg *msgs, int num)
+ {
+ 695     ret = s3c24xx_i2c_set_master(i2c); //对i2c总线做超时检测
+ 
+ 702     i2c->msg     = msgs;
+ 706     i2c->state   = STATE_START;//为了后续代码执行做准备
+ 
+ 709     s3c24xx_i2c_message_start(i2c, msgs);
+		 设置了从机地址，读写的状态位，使能应答信号 
+720     timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 5);
+		阻塞
+ }
+ 
+ 1072 static int s3c24xx_i2c_probe(struct platform_device *pdev) 重新回到probe函数
+ {
+	1172     ret = devm_request_irq(&pdev->dev, i2c->irq, s3c24xx_i2c_irq, 0,
+1173                 dev_name(&pdev->dev), i2c);			||
+ }															\/
+										598     i2c_s3c_irq_nextbyte(i2c, status);
+														||
+														\/
+								
+		 422     case STATE_START://一定会执行这个分支
+		 436         if (i2c->msg->flags & I2C_M_RD)
+		 437             i2c->state = STATE_READ;
+		 438         else
+		 439             i2c->state = STATE_WRITE;								
+										
+517     case STATE_READ:
+ 523         byte = readb(i2c->regs + S3C2410_IICDS);
+ 524         i2c->msg->buf[i2c->msg_ptr++] = byte;	
+
+455     case STATE_WRITE:
+472             byte = i2c->msg->buf[i2c->msg_ptr++];
+ 473             writeb(byte, i2c->regs + S3C2410_IICDS); 
+ 
+I2C总线驱动:实现了数据帧的封装方法。
+————————————————————————————————————————————————————————————————————————————————————
+I2C核心层:drivers/i2c/i2c-core.c
+
+各种接口的定义(不一定被框架使用)
+
+驱动框架
+
+1694 postcore_initcall(i2c_init);
+
+1654 static int __init i2c_init(void)
+1655 {
+1658     retval = bus_register(&i2c_bus_type);在/sys/bus下面创建i2c文件夹
+1662     i2c_adapter_compat_class = class_compat_register("i2c-adapter");
+1668     retval = i2c_add_driver(&dummy_driver);//必须要掌握的
+}						||
+						\/
+	512 #define i2c_add_driver(driver) \
+	513     i2c_register_driver(THIS_MODULE, driver)
+					||
+					\/
+	1542     driver->driver.bus = &i2c_bus_type;
+					||
+					\/
+	1547     res = driver_register(&driver->driver);
+						||
+						\/
+	167     ret = bus_add_driver(drv);
+						||
+						\/
+	692         error = driver_attach(drv);
+							||
+							\/
+	479     return bus_for_each_dev(drv->bus, NULL, drv, __driver_attach);
+			这个函数在执行__driver_attach
+							||
+							\/
+		453     if (!driver_match_device(drv, dev))
+							||
+							\/
+		120     return drv->bus->match ? drv->bus->match(dev, drv) : 1; 
+		如何能知道drv->bus->match的执行结果，需要查看
+			driver->driver.bus = &i2c_bus_type;	
+									||
+									\/
+			454 struct bus_type i2c_bus_type = {                                           
+			 455     .name       = "i2c",
+			 456     .match      = i2c_device_match,
+			 457     .probe      = i2c_device_probe,
+			 458     .remove     = i2c_device_remove,
+			 459     .shutdown   = i2c_device_shutdown,
+			 460     .pm     = &i2c_device_pm_ops,
+			 461 };
+			match成员被初始化了，所以drv->bus->match，成立后执行drv->bus->match，实际就是在执行i2c_device_match
+						||
+						\/
+  80     struct i2c_client   *client = i2c_verify_client(dev);//描述i2c设备，不是真正设备
+  81     struct i2c_driver   *driver;//描述i2c驱动
+  87     if (of_driver_match_device(dev, drv))驱动和设备树匹配
+  88         return 1;                                                           
+  94     driver = to_i2c_driver(drv);
+  95     /* match on an id table if there is one */
+  96     if (driver->id_table)
+  97         return i2c_match_id(driver->id_table, client) != NULL;
+  
+460         driver_probe_device(drv, dev);
+					||
+					\/
+	382     ret = really_probe(dev, drv);
+					||
+					\/
+	288         ret = dev->bus->probe(dev);  就是在执行i2c_bus_type中的probe，本质在执行i2c_device_probe
+													||
+													\/
+				244 static int i2c_device_probe(struct device *dev)
+								||
+								\/
+	263     status = driver->probe(client, i2c_match_id(driver->id_table, client));
+    如果设备和驱动匹配成功则执行i2c_driver中的probe函数
+	
+	注意:真正执行probe函数前一定会先调用i2c_match_id(driver->id_table, client)
+	clint中的name和id_table中的name进行比较，比较过程中真或者假都行(前提是使用设备树)
+	我们在定义i2c_driver结构体时一定要初始化id_table
+	
+总结:在i2c核心层中提供了
+struct i2c_driver 描述i2c驱动
+{
+170     int (*probe)(struct i2c_client *, const struct i2c_device_id *);        
+171     int (*remove)(struct i2c_client *);
+190     struct device_driver driver;
+191     const struct i2c_device_id *id_table;
+};
+
+struct device_driver{ 
+ 229     const char      *name;出现在/sys/bus/i2c/drivers目录下的一个名称
+ 237     const struct of_device_id   *of_match_table;//用来和设备树匹配
+};
+
+217 struct i2c_client { 描述i2c设备，最终需要通过设备树来描述出来
+218     unsigned short flags;//读或者写
+219     unsigned short addr;//从机地址 
+222     char name[I2C_NAME_SIZE];//用于匹配的名称，出现在/sys/bus/i2c/devices
+223     struct i2c_adapter *adapter; 指向了正在使用i2c适配器
+227 }; 
+
+i2c_add_driver(struct i2c_driver *driver);
+i2c_del_driver(struct i2c_driver *driver);
+
+实现驱动前先将设备树实现。
+188     i2c@13860000 { 系统自带的，13860000是I2CCON0的地址
+189         #address-cells = <1>;
+190         #size-cells = <0>;
+191         samsung,i2c-sda-delay = <100>;
+192         samsung,i2c-max-bus-freq = <20000>;
+193         pinctrl-0 = <&i2c0_bus>;
+194         pinctrl-names = "default";
+195         status = "okay";
+}
+
+自己的设备树
+
+注意:节点名称必须是i2c
+	 这个地址中B必须为大写字母
+	 地址如何操作，查看三星手册，我们使用的是I2CCON几？查看原理图I2C_SCL5，使用I2CCON5，
+	 查看三星手册发现I2CCON5对应地址为0x138B0000
+i2c@138B0000{  
+	#address-cells = <1>;//当前节点的子节点中有一个基地址
+	#size-cells = <0>;//当前节点的子节点中有0个偏移量
+	samsung,i2c-sda-delay = <100>;//数据线在发生跳变时延时时间为100纳秒
+	samsung,i2c-max-bus-freq = <100000>;//i2c总线的传输速率
+	pinctrl-0 = <&i2c5_bus>;
+    pinctrl-names = "default"; i2c5_bus对应的节点中寄存器的值是什么由default决定
+    status = "okay"; //代表当前总线是可用状态
+	
+	外设节点@从机地址{
+		compatible = ",";
+		reg = <从机地址>;
+	};
+};
+
+a、b、c都是某个节点的标号
+pinctrl-0 = <&a>; 索引到a节点，而且a节点描述了一组寄存器
+pinctrl-1 = <&b>;
+pinctrl-2 = <&c>;
+pinctrl-names = "default","sleep","idle";
+				 默认      睡眠     空闲   
+说明当前这个属性描述了三组引脚的状态，具体的状态是什么这个属性没有指定
+
+exynos4x12-pinctl.dtsi:
+219         i2c5_bus: i2c5-bus {
+220             samsung,pins = "gpb-2", "gpb-3"; //GPBCON [2] [3]
+221             samsung,pin-function = <3>;
+				//GPBCON [2]和[3]中的值为3，分别控制I2C数据线和I2C时钟线
+				
+222             samsung,pin-pud = <3>;//使能上拉
+223             samsung,pin-drv = <0>;//电流强度为1倍
+224         };
+
+上午:实现I2C设备驱动
+下午:输入子系统

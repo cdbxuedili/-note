@@ -1,0 +1,1 @@
+cmd_/home/linux/teach/18031/driver/4/platform/driver.ko := arm-none-linux-gnueabi-ld -EL -r  -T /home/linux/linux-3.14/scripts/module-common.lds --build-id  -o /home/linux/teach/18031/driver/4/platform/driver.ko /home/linux/teach/18031/driver/4/platform/driver.o /home/linux/teach/18031/driver/4/platform/driver.mod.o

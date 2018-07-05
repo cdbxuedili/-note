@@ -1,0 +1,329 @@
+【1】soc
+   soc：system  on  chip
+         cpu、irom、sram、各种控制器
+	
+     厂商：
+           samsung
+           高通
+           德州仪器
+           飞思卡尔
+            联发科
+            展讯
+            全志 
+            意法半导体
+			  stm32:
+			      rtos,ucos
+				  
+           	华为
+			   海思
+			   
+		 ARM:cpu  
+	
+			 vendor:samsung
+			 soc:exynos4412
+			 ARCH:arm 
+			 CPU:cortex_a9
+			 内存：0x40000000  - 0x80000000   1G
+			 EMMC:4G
+        
+嵌入式：
+    软硬件可裁剪
+	
+  硬件裁剪：
+     参考参考板，或者标准板设计硬件，将需要的硬件加进来，不需要直接删除.
+  软件裁剪：
+     os  
+	android  windows  ubuntu  linux   ios  yunos(alios)    vxworks
+	
+ linux内核：
+inux内核的主要模块（或组件）分以下几个部分：存储管理、
+      CPU和进程管理、文件系统、设备管理和驱动、网络通信，
+     以及系统的初始化（引导）、系统调用等。
+	 
+linu系统： linux内核+（文件系统）应用程序
+                                  c,c++,java
+						
+						
+ubuntu系统：linux内核+应用程序  
+                       c++						
+						
+android系统：linux内核+应用程序  
+                        java 	
+						
+
+  arm+linux  
+  
+ 
+【2】嵌入式设备启动
+   1、bootloader
+      在内核运行之前执行的一小段代码，初始化硬件，引导内核
+   2、linux内核
+    
+   3、文件系统----->应用程序  
+
+   
+
+   移植：
+      bootloader        内核          文件系统
+   	  
+【3】开发环境搭建
+    1、交叉编译器
+      ubuntu使用的处理器intel，在处理器下运行的格式x86格式。
+      fs4412使用的处理器arm，在arm平台下运行的格式arm格式。
+      x86格式不能在arm平台下运行，arm格式不能x86平台下运行.
+      gcc编译只能得到x86格式，如果想得到arm格式的可执行程序，必须需要
+      另外一款编译器，将程序编译生成arm格式。
+	  
+	 gnu：为linux内核提供开发环境，linux为gnu提供运行平台.	 
+    	   gcc,gdb  Make
+	
+     arm格式的编译器：
+       1、源码编译
+	       crosstools-ng
+	   2、第三方
+             bsp
+       3、网上下载
+	       https://www.linaro.org/downloads/
+		   
+	交叉开发：
+       在主机上编写程序，编译程序(交叉编译器)，运行在目标机上运行.
+
+【4】交叉编译器的安装
+    1、将编译拷贝到ubuntu的目录下，并解压缩
+      tar  xvf 	gcc-4.6.4.tar.xz 
+	2、配置环境变量
+        /etc/profile   当前终端下有效
+        /etc/environment   系统配置信息
+        /etc/bash.bashrc    店长推荐
+   		
+	 sudo  vi  /etc/bash.bashrc  
+          在最后一行添加：
+            export  PATH=$PATH:/home/linux/tools/gcc-4.6.4/bin		  
+      
+     立即生效	  
+		source  /etc/bash.bashrc   
+ 
+     测试：
+       arm-n  tab键
+
+【5】开发板使用
+    bootloader
+	   uboot通用的引导程序，uboot属于bootloader的一种。
+	   uboot在内核运行之前执行的一小段代码，不属于操作系统（汇编代码+c）
+	   作用：初始化硬件
+	         引导内核 
+	         为内核传参
+	   
+    kernel
+    rootfs
+
+	
+	uboot启动模式有两种：
+	   1、自启动模式
+	   2、用户交互模式
+	       倒计时，在倒计时结束之前，按任意键，进入到uboot的命令行，内核
+		   就不会启动。
+		   
+					U-Boot 2013.01 (Aug 24 2014 - 12:01:19) for FS4412
+
+				CPU:    Exynos4412@1000MHz
+
+				Board: FS4412
+				DRAM:  1 GiB
+				WARNING: Caches not enabled
+				MMC:   MMC0:    3728 MB
+				In:    serial
+				Out:   serial
+				Err:   serial
+
+				MMC read: dev # 0, block # 48, count 16 ...16 blocks read: OK
+				eMMC CLOSE Success.!!
+
+
+				Checking Boot Mode ... EMMC4.41
+				Net:   dm9000
+				Hit any key to stop autoboot:  0
+				FS4412 #
+				
+		help  查看uboot支持哪些命令
+        md      - memory display   显示内存的地址信息
+		
+		gpx2_7  0x11000c40    [31-28] 
+		gpx1_0  0x11000c20
+		gpf3_4  0x114001e0 
+		
+		nm      - memory modify (constant address)   修改内存的地址信息，地址不递增
+		
+		nm  0x11000c44
+		打印环境变量
+		printenv- print environment variables
+        
+		    baudrate=115200  串口的波特率
+			内核启动结束后，执行bootargs参数
+			bootargs=root=/dev/nfs nfsroot=172.26.1.140:/rootfs init=/linuxrc console=ttySAC2,115200 rw ip=172.26.1.250
+			
+			uboot启动时，执行bootcmd，uboot启动时，倒计时，在倒计时结束之前如果没有
+			按任意键uboot会自动执行bootcmd。
+			bootcmd=tftp 41000000 uImage ;tftp 42000000 exynos4412-fs4412.dtb ;bootm 41000000 - 42000000
+			uboot的倒计时的时间
+			bootdelay=5
+			 指定网卡
+			ethact=dm9000
+			ethaddr=11:22:33:44:55:66
+			fileaddr=42000000
+			filesize=83E6
+			gatewayip=172.22.1.1
+			ipaddr=172.26.1.250  开发板的ip地址
+			myboard=FS4412
+			netmask=255.255.0.0
+			serverip=172.26.1.140  ubuntu的ip地址
+			stderr=serial
+			stdin=serial
+			stdout=serial
+		
+		 
+        保存环境变量
+		saveenv - save environment variables to persistent storage
+        设置环境变量
+		setenv  - set environment variables
+		
+		用法：
+		   setenv   name(环境变量的名字)  value
+		   
+		exa:
+		       setenv  bootdelay  3
+			   save
+			   
+			   
+		网络：
+		   设置开发板的ip地址
+          setenv  ipaddr   172.25.1.250	
+          	设置ubuntu的ip的ip地址
+          setenv  serverip  172.25.1.126
+		  
+		  
+
+          保存环境变量的信息
+           save  
+		   
+		   ping  ubuntu的ip地址 
+		  ping  172.25.1.126
+		  
+		  
+		  
+		  FS4412 # setenv  ipaddr  172.25.1.250
+			FS4412 # setenv  serverip  172.25.1.126
+			FS4412 # save
+			Saving Environment to MMC...
+			Writing to MMC(0)... .done
+			FS4412 # ping  172.25.1.126
+			dm9000 i/o: 0x5000000, id: 0x90000a46
+			DM9000: running in 16 bit mode
+			MAC: 11:22:33:44:55:66
+			operating at 100M full duplex mode
+			Using dm9000 device
+			host 172.25.1.126 is alive
+			
+			说明开发板可以ping通ubuntu
+			
+			
+        不能ping通出现错误的原因是：
+		   1、没有插网线
+		   2、检查下在ping的过程中网卡灯是否亮
+		   3、把无线网关闭
+		   4、将vmware的网卡设置为桥接。 
+	
+   将编写的代码拷贝到ubuntu的目录下，
+ 	vi Makefile
+      CROSS_COMPILE=arm-none-linux-gnueabi-
+
+    make  
+
+    sudo  cp  *.bin   /tftpboot  
+
+    切换到开发板
+       tftp   40008000  *.bin 
+       go  40008000
+  	   
+    tftp  40008000  led_gpio.bin  
+            led_gpio.bin     /tftpboot
+    	
+	
+    出现TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+      1、重启ubuntu的tftp服务
+        sudo  /etc/init.d/tftpd-hpa  restart 
+      2、检查开发板是否能ping通ubuntu.		
+		   
+		   
+		   
+		   
+		gpd0con   [3-0]     0x2    0x114000a
+        tcfg0     0x139d0000     [7-0]     0xff
+        tcfg1     0x139d0004      [3-0]    0x2 
+        tcon      0x139d0008      [3-0]    0x2    0x9 
+        tcntb0    0x139d000c     [31-0]    500
+        tcmpb0	  0x139d0010     [31-0]    250      		 
+
+【5】uboot启动内核
+    uImage(内核的镜像)  exynos4412-fs4412.dtb(设备树)  设备树：描述板子的硬件信息 
+
+    note:
+       内核中包含驱动程序，驱动需要操作硬件，硬件信息在设备树中存放，内核
+       解析设备树。这两个文件需要同时需要，两者缺一不可。
+    	   
+	把uImage和exynos4412-fs4412.dtb  拷贝到tftpboot
+	
+		
+	进入到uboot的命令行：
+    setenv  bootcmd  tftp  41000000 uImage \;tftp  42000000 exynos4412-fs4412.dtb \;bootm  41000000 - 42000000	
+	saveenv  
+
+【6】文件系统
+     rootfs.tar.xz  ------>rootfs
+	 拷贝到ubuntu的根目录下解压缩
+	 sudo  tar  xvf  rootfs.tar.xz  
+	 
+	 
+    内核启动时，解析bootargs参数。
+	 setenv  bootargs  root=/dev/nfs nfsroot=172.25.1.126:/rootfs  init=/linuxrc console=ttySAC2,115200  ip=172.25.1.250 
+	 root=/dev/nfs  mount  -t nfs  指定挂载的文件系统的类型nfs
+	 nfsroot=172.25.1.126:/rootfs  指定服务器的共享目录 172.25.1.126  ubuntu的ip地址  rootfs  共享目录名字
+	 init=/linuxrc   内核执行结束后执行init进程，当内核执行结束后，执行第一个应用程序 linuxrc  
+	 console=ttySAC2,115200   指定使用第三个串口，串口的波特率为115200
+	 ip=172.25.1.250  开发板的ip地址  
+	 
+	进入到uboot的命令行： 
+	setenv  bootargs  root=/dev/nfs nfsroot=ubuntu的ip地址:/rootfs  init=/linuxrc console=ttySAC2,115200  ip=开发板的ip地址
+    save 
+
+
+【7】总结
+    交叉开发： 
+	uboot  ----->kernel------->rootfs  
+	irom---->uboot  ----bootcmd----kernel----bootargs---->rootfs  
+        	
+	
+	
+     
+	
+	   
+   	
+   	   
+		   
+	  	   
+    		   
+	  
+	  
+	  
+ 
+ 
+    
+						
+ 
+	
+	 
+    
+	
+       		 
+			   
+            			

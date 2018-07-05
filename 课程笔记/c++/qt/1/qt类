@@ -1,0 +1,139 @@
+qt是一种图形化开发框架（c++编写）
+
+QObject类
+1.是所有QT对象的基类
+2.所有继承他产生的类的都可以使用信号和槽机制进行通讯
+3.所有继承他产生的类的都由QT框架提供内存管理支持
+
+
+QWidget类
+1.所有qt用户接口的类
+2.与图形化界面相关的类（QLabel）
+3.是矩形的，下类覆盖上类
+
+QString类
+1.提供Unicode编码格式的字符串
+2.使用方法与std：：string类似
+3.可以转化成c中字符串和str::string
+
+
+qt内存管理：高效的快速的申请和释放资源
+对象树：父对象的子对象内存随着父对象内存的释放而释放
+
+
+信号和槽：
+1.通过QObject中的connect函数将信号和槽进行连接，信号产生槽函数就被调用
+2.自定义信号和槽
+ 	只有继承与qobject类或其子类的类才能自定义信号
+ 	class 类名 ： QObject或其子类{
+ 		Q_OBJECT
+ 		//其他成员
+ 		signals
+ 		void 信号名（参数列表）
+ 	}；
+一定条件发送信号：
+	emit 信号名（参数名）；
+	信号发送后会执行相关的槽函数
+
+	class 类名 ： QObject或其子类{
+ 		Q_OBJECT
+ 		//其他成员
+	public：
+ 		void 槽名（参数列表）
+ 	}；
+
+
+
+qt布局
+QLayout 是QT的所有布局类的基类
+void QWidget::setLayout(QLayout * i) 设置控件布局
+void QLayout::addWidget(QWidget * w) 将控件添加到布局对象
+
+常用布局类
+QHBoxLayout
+放入布局水平排列
+QVBoxLayout
+放入布局垂直排列
+
+
+
+QApplication类：搭建qt框架
+
+-------------------------------------
+QWidget：类生成空白窗口类
+QHBoxLayout：内部控件水平布局
+----------------------------------------
+内部控件的类
+QPushButton类：内部生成按钮的类
+QLineEdit类：内部文本输入
+QLabel类：内部标签
+------------------------------------
+
+void QLayout::addWidget(QWidget * w) 将控件添加到布局对象
+
+QLayout 是QT的所有布局类的基类
+void QWidget::setLayout(QLayout * i)
+
+
+可以通过生成一个基于QWidget的子类简化程序
+class Mywindow:public QWidget
+{
+private:
+	QHBoxLayout * layout; //水平布局
+	QPushButton * btn;//按钮
+	QLineEdit * le;//文本框
+	QLabel * lb;//标签
+public:
+	Mywindow(QWidget * parent=0);
+	
+};
+Mywindow::Mywindow(QWidget * parent)
+	:QWidget(parent)
+{
+	layout = new QHBoxLayout(this);
+	btn = new QPushButton("login",this);
+	le = new QLineEdit(this);
+	lb = new QLabel("name",this);
+
+	layout->addWidget(lb);
+	layout->addWidget(le);
+	layout->addWidget(btn);
+
+	this ->setLayout(layout);
+
+} 
+
+
+
+qtcreator
+创建工程的开发qt的工具
+		||
+		\/
+	  ui文件
+ui文件是描述控件及布局关系的，通过ui指针可以访问ui文件中的各种控件
+作用：完成窗口内控件的布局工作
+
+
+qtcreator创建类
+右击untitled--》add new ----》c++ qt -----》模板
+
+窗口跳转
+QWidget::show() 将控件设置为可见
+QWidget::hide() 将控件设置为不可见
+
+自定义控件
+例 按按钮打印字符串
+add new  c++
+基类  QPushButton
+继承与QWidget
+
+在生成的头文件中添加一个构造函数
+并且在相应位置定义构造函数
+
+通过他私有信号定义一个槽来验证
+
+
+拖父类，选择提升为子类后添加
+
+视频看到1.9
+

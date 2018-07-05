@@ -1,0 +1,399 @@
+移植？将一个运行于某个硬件平台上的功能拿到另一个不同体系架构的硬件平台上运行。
+硬件移植
+
+软件移植:uboot移植、内核移植、第三方源码移植
+
+1、假设需要让uboot能联网，需要网卡，网卡会区分不同厂家以及不同型号
+2、选择出适合自己板子的某个型号。比如dm9000或者cs8900
+3、假设选择了dm9000型号，先去了解这款型号的硬件信息(寄存器、控制器等等)。
+4、找到dm9000或者其他某些型号的网卡驱动，开始抄逻辑，然后修改内部细节。
+5、编译、调试
+
+移植过程中需要使用到交叉编译环境:arm-none-linux-gnueabi-
+
+几乎所有的嵌入式开发都是在PC设备上开发，运行于嵌入式设备。
+编写主机     运行主机
+   X86         arm/mips....   体系架构不同时需要使用交叉编译工具链
+   
+1、将已经编译好的gcc-4.6.4.tar.gz拷贝到ubuntu中
+2、解压:tar -xzvf gcc-4.6.4.tar.gz
+		tar -xjvf gcc-4.6.4.tar.bz2
+		tar -xJvf gcc-4.6.4.tar.xz
+3、sudo vi /etc/bash.bashrc
+	最后一行添加:export PATH=$PAHT:绝对路径/bin
+	
+如果没有加sudo进入文件，如何保存？w !sudo tee %
+
+file 文件名   查看文件类型
+如果文件类型是一个二进制文件
+
+strip 二进制文件  
+
+objdump 反汇编
+objcopy 对二进制文件进行格式转化
+
+系统移植涉及到的内容相当于给开发板装一个系统
+1、irom中厂家固化了一段代码
+2、引导程序，当前使用的只是引导程序中的一种——u-boot
+3、内核镜像——uImage
+4、文件系统
+5、应用程序——第三方源码
+
+u-boot有两种工作模式:
+交互模式
+自启动模式
+
+重点关心交互模式:
+u-boot命令:
+printenv 
+setenv 变量 内容
+setenv 变量 
+saveenv 保存 
+
+tftp 41000000 uImage 
+go 41000000 跳转到41000000地址运行uImage文件
+bootm 41000000 - - 跳转到41000000地址出运行uImage文件，但是bootm除了跳转之外可以给内核传参
+
+bootm 内核镜像地址 文件系统镜像地址 设备树文件地址
+
+setenv bootcmd tftp 41000000 uImage\;tftp 42000000 exynos4412-fs4412.dtb\;bootm 41000000 - 42000000
+
+setenv bootargs root=/dev/nfs nfsroot=ubuntu地址:/rootfs rw console=ttySAC2,115200 
+init=/linuxrc ip=开发板地址
+
+linuxrc索引了busybox，busybox提供了很多命令功能。
+
+sudo mount -t nfs 192.168.1.110:/rootfs /mnt 
+
+实验二中4步
+u-boot目录结构、u-boot配置方法
+
+movi  write  kernel  41000000  从41000000地址处读取数据写入到emmc的kernel分区中
+kernel代表的是emmc(一种flash，一种存储设备，类似于pc中的硬盘)中的一个分区名称
+emmc的指定分区名称: kernel/dtb/rootfs 
+
+movi read dtb 42000000  从emmc的dtb分区中读数据，存放到内存的42000000地址处。
+
+u-boot源码:
+正常需要编译，编译后生成u-boot.bin文件，最终会被烧写到开发板的emmc中。
+
+如果编译，需要在u-boot的顶层目录下使用Makefile编译,使用Makefile时基本编译方法是执行make命令，当前在u-boot顶层直接执行make会出现：System not configured - see README
+也就是说如果要编译，必须先配置。
+
+1、什么叫做配置？
+要了解配置必须先了解u-boot源码顶层目录下的一些重要文件。
+
+重要目录结构:
+arch 内部存放的都是和cpu体系架构相关代码
+board 下面的子目录都是以厂家名称命名的
+common 存放的都是u-boot支持的命令源码
+drivers u-boot支持的裸板驱动代码
+
+开发过程中开发板肯定是固定的(体系和厂家都是固定的)，所以正常情况下u-boot源码中和我们自己板子的体系以及厂家不同的代码都可以删除。因为大型源码内部内容比较多比较杂不能认为删除，所以要进行配置。
+
+所以，所谓的配置就是从大型源码中选择出我们当前平台需要的内容。
+
+2、如何配置？
+两种选择:第一种，百度。
+		 第二种，查看README文件。
+		 
+进入README文件的266行
+ 266 For all supported boards there are ready-to-use default                    
+ 267 configurations available; just type "make <board_name>_config".
+ 268 
+ 269 Example: For a TQM823L module type:
+ 270 
+ 271     cd u-boot
+ 272     make TQM823L_config
+		 
+make 板子名称_config
+board/samsung/origen 叫做标准板。很多类似的芯片都可以以origen为模板来进行移植。
+cp origen farsight -arf  
+
+make farsight_config
+但是出现了问题：make: *** No rule to make target `farsight_config'.  Stop. 
+
+原因:u-boot不认识这个名称。
+
+如何让u-boot认识farsight这个名字？
+vi u-boot顶层目录/boards.cfg
+复制284 origen     arm     armv7       origen     samsung    exynos
+修改为 285 farsight                 arm     armv7       farsight        samsung    exynos
+
+配置之后，u-boot帮助我们做了什么工作呢？
+解决过程:因为执行配置方法为make farsight_config
+所以farsight_config应该是Makefile中的一个目标或者伪目标
+
+进入Makefile文件寻找farsight_config,它可能是一个目标也可能是一个伪目标，无论是目标还是伪目标它肯定是配置的入口。
+
+
+775 %_config::  unconfig                                                        
+776     @$(MKCONFIG) -A $(@:_config=)
+%_config相当于我们使用的farsight_config
+在Makefile中%的作用相当于脚本中*的作用 
+
+需要执行@$(MKCONFIG) -A $(@:_config=)
+@作用是拒绝回显（执行命令在终端上不显示过程）
+
+Makefile中变量的引用需要加$
+
+131 MKCONFIG    := $(SRCTREE)/mkconfig
+
+126 SRCTREE     := $(CURDIR)
+
+顶层目录下执行make -p Makefile > xxx
+vi xxx文件中寻找CURDIR变量
+49 CURDIR := /home/linux/source/u-boot-2013.01
+所以MKCONFIG := /home/linux/source/u-boot-2013.01/mkconfig
+
+$@代表了所有的不重复的目标文件
+$(@:_config=) 由$@和_config=构成的一个表达式，其中_config=作用就是将_config赋值为空
+
+$@是farsight_config   _config=说明清除_config 剩下的就是farsight
+
+$(MKCONFIG) -A $(@:_config=) ==> 顶层目录/mkconfig -A farsight
+
+mkconfig是一个脚本文件
+#!/bin/sh 说明mkconfig文件使用的是sh命令行解释器
+
+也就是说配置是由mkconfig脚本文件操作的。
+	
+进入mkconfig文件中:
+
+ 22 if [ \( $# -eq 2 \) -a \( "$1" = "-A" \) ] ; then                           
+ 23     # Automatic mode
+ 24     line=`egrep -i "^[[:space:]]*${2}[[:space:]]" boards.cfg` || {
+ 25         echo "make: *** No rule to make target \`$2_config'.  Stop." >&2
+ 26         exit 1
+ 27     }
+
+$#代表的是给mkconfig脚本文件传递的参数个数，当前$#=2
+-a 就是逻辑与
+$1和-A相等
+所以if [ \( $# -eq 2 \) -a \( "$1" = "-A" \) ]条件成立。
+
+egrep 相当于 grep ，grep在某个文件中搜索字符串——grep "abc" * -Rn
+"^[[:space:]]*${2}[[:space:]]" egrep要搜索的字符串
+比如grep "^abc" * -Rn 搜索以abc开头的内容
+[[:space:]] 代表了空格或者tab键
+*通配符
+^[[:space:]]*${2} 搜索以${2}开头，搜索${2}时如果前面出现空格或者tab不影响。
+${2} = farsight
+
+line = farsight    arm     armv7       farsight    samsung    exynos
+
+从boards.cfg文件中搜索farsight
+所以在前面操作中，在boards.cfg文件中以origen为模板添加了一句话:
+farsight    arm     armv7       farsight    samsung    exynos
+
+ 29     set ${line} 以单词为单位将这些单词变成mkconfig脚本的$1 $2 $3 $4 $5 $6 
+			||
+			\/
+	farsight    arm     armv7       farsight    samsung    exynos
+	   $1        $2       $3          $4          $5         $6 
+	此时可以总结出$#=6
+	
+ 43 while [ $# -gt 0 ] ; do
+ 44     case "$1" in
+ 45     --) shift ; break ;;
+ 46     -a) shift ; APPEND=yes ;;
+ 47     -n) shift ; BOARD_NAME="${1%_config}" ; shift ;;
+ 48     -t) shift ; TARGETS="`echo $1 | sed 's:_: :g'` ${TARGETS}" ; shift ;;
+ 49     *)  break ;; 因为$1 = farsight 所以执行 *)这个分支
+ 50     esac                                                                    
+ 51 done
+ 
+ 57 CONFIG_NAME="${1%_config}" //去掉$1中的尾部信息_config
+${1%_config}这是一个表达式(由变量和规则)
+${1}是变量 %_config是规则
+%_config 的作用是去掉字符串尾
+
+59 [ "${BOARD_NAME}" ] || BOARD_NAME="${1%_config}"
+   判断 BOARD_NAME是否有内容
+   如果有内容则成立
+   如果没有内容不成立
+BOARD_NAME="${1%_config}" ==》 farsight 
+
+ 61 arch="$2" = arm                                                                  
+ 62 cpu=`echo $3 | awk 'BEGIN {FS = ":"} ; {print $1}'` <==> echo $3 | cut -d ':' -f 1
+															 以armv7为基础，以:为分隔符剪切出第一部分
+															 cpu = armv7 
+ 63 spl_cpu=`echo $3 | awk 'BEGIN {FS = ":"} ; {print $2}'`  spl_cpu是空
+ 64 if [ "$4" = "-" ] ; then
+ 65     board=${BOARD_NAME}
+ 66 else
+ 67     board="$4" = farsight 
+ 68 fi
+ 69 [ $# -gt 4 ] && [ "$5" != "-" ] && vendor="$5" = samsung 
+ 70 [ $# -gt 5 ] && [ "$6" != "-" ] && soc="$6" = exynos 
+ 71 [ $# -gt 6 ] && [ "$7" != "-" ] && { 
+    此时条件失败
+总结:arch=arm cpu=armv7 board=farsight vendor=samsung soc=exynos
+	
+89 if [ "${ARCH}" -a "${ARCH}" != "${arch}" ]; then                            
+ 90     echo "Failed: \$ARCH=${ARCH}, should be '${arch}' for ${BOARD_NAME}" 1>&
+ 91     exit 1
+ 92 fi
+这里的ARCH是Makefile变量
+
+ 94 if [ "$options" ] ; then
+ 95     echo "Configuring for ${BOARD_NAME} - Board: ${CONFIG_NAME}, Options: ${
+ 96 else
+ 97     echo "Configuring for ${BOARD_NAME} board..."  执行这里
+ 98 fi
+
+脚本的变量引用:$变量名 ${变量名}
+Makefile变量引用:$(变量名) 或者 ${变量名} 习惯使用()
+	
+103 if [ "$SRCTREE" != "$OBJTREE" ] ; then SRCTREE和OBJTREE通过xxx文件查看的
+104     mkdir -p ${OBJTREE}/include
+105     mkdir -p ${OBJTREE}/include2
+106     cd ${OBJTREE}/include2
+107     rm -f asm
+108     ln -s ${SRCTREE}/arch/${arch}/include/asm asm
+109     LNPREFIX=${SRCTREE}/arch/${arch}/include/asm/
+110     cd ../include
+111     mkdir -p asm
+112 else
+113     cd ./include     切换到了include目录下                                                        
+114     rm -f asm
+115     ln -s ../arch/${arch}/include/asm asm(这个软链接存在于include目录下)
+116 fi
+	../arch/arm/include/asm 无论${arch}怎么改变，使用的人只需要知道操作include/asm文件
+	
+123     ln -s ${LNPREFIX}arch-${soc} asm/arch	
+	    以arch-exynos为源文件，创建软连接文件到asm下称为arch
+	
+128     ln -s ${LNPREFIX}proc-armv asm/proc 产生了一个软链接
+
+以上产生的三个软链接就是为了针对不同架构不同厂商提供通用性
+
+
+134 ( echo "ARCH   = ${arch}"
+135     if [ ! -z "$spl_cpu" ] ; then
+136     echo 'ifeq ($(CONFIG_SPL_BUILD),y)'
+137     echo "CPU    = ${spl_cpu}"
+138     echo "else"
+139     echo "CPU    = ${cpu}"
+140     echo "endif"                                                            
+141     else
+142     echo "CPU    = ${cpu}"
+143     fi
+144     echo "BOARD  = ${board}"
+145 
+146     [ "${vendor}" ] && echo "VENDOR = ${vendor}"
+147     [ "${soc}"    ] && echo "SOC    = ${soc}"
+148     exit 0 ) > config.mk 存放于include目录下
+在include/config.mk 中存放了5个变量:
+ARCH=arm CPU=armv7 BOARD=farsight VENDOR=samsung SOC=exynos 后续给顶层Makefile文件使用。
+
+154     BOARDDIR=${vendor}/${board} == 》samsung/farsight
+
+164     > config.h   在include目录下创建config.h
+
+173 echo "#define CONFIG_SYS_ARCH  \"${arch}\""  >> config.h
+174 echo "#define CONFIG_SYS_CPU   \"${cpu}\""   >> config.h
+175 echo "#define CONFIG_SYS_BOARD \"${board}\"" >> config.h
+176                                                                             
+177 [ "${vendor}" ] && echo "#define CONFIG_SYS_VENDOR \"${vendor}\"" >> config.
+178 
+179 [ "${soc}"    ] && echo "#define CONFIG_SYS_SOC    \"${soc}\""    >> config.
+180 
+181 cat << EOF >> config.h
+182 #define CONFIG_BOARDDIR board/$BOARDDIR
+183 #include <config_cmd_defaults.h>
+184 #include <config_defaults.h>
+185 #include <configs/${CONFIG_NAME}.h>  ==> #include <configs/farsight.h>
+186 #include <asm/config.h>
+187 #include <config_fallbacks.h>
+188 #include <config_uncmd_spl.h>
+189 EOF
+
+总结:配置工作完成了三部分内容:1、创建了三个软链接文件为了提高通用性
+							  2、在include目录下产生了config.mk文件，给顶层Makefile使用
+							  3、在include目录下产生了config.h文件。
+
+
+							  
+编译:目的是为了生成可执行文件。可执行文件是elf格式的。但是裸板不能识别elf格式，所以需要使用u-boot.bin文件。
+
+如何编译？make 或者 make all							  
+							  
+此时直接执行make，出错:/home/linux/source/u-boot-2013.01/include/config.h:10:30: fatal error: configs/farsight.h: No such file or directory							  
+
+解决方法:
+cp include/configs/origen.h include/configs/farsight.h
+							  
+继续执行make，出现了一堆错误，因为没有重新配置，再执行一次
+make farsight_config
+make 							  
+							  
+此时生成了u-boot.bin文件，但是不是我们真正烧写到emmc中的.bin文件。 							  
+如何生成了u-boot.bin呢？make 或者 make all 
+可知编译的入口是all伪目标。
+171 all:
+............
+180 include $(obj)include/config.mk  引用了配置时产生的.mk文件
+181 export  ARCH CPU BOARD VENDOR SOC 导出这5个变量，使其称为全局变量。
+
+184 ifeq ($(HOSTARCH),$(ARCH))
+185 CROSS_COMPILE ?=
+186 endif
+CROSS_COMPILE 看到这个变量必须要知道它是存放交叉编译工具链的。
+............
+439 $(obj)u-boot.bin:   $(obj)u-boot                                            
+440         $(OBJCOPY) ${OBJCFLAGS} -O binary $< $@
+441         $(BOARD_SIZE_CHECK)
+all 和 u-boot.bin:之间的内容几乎全是文件引用和变量的定义赋值，所以暂时跳过。
+u-boot.bin最终需要在板子上使用的二进制文件。		
+		  
+u-boot.bin依赖u-boot,但是u-boot是一个elf格式的可执行文件，所以要想生成u-boot.bin文件必须找到u-boot这个目标。							  
+							  
+566 $(obj)u-boot:   depend \                                                    
+567         $(SUBDIR_TOOLS) $(OBJS) $(LIBBOARD) $(LIBS) $(LDSCRIPT) $(obj)u-boot.lds
+568         $(GEN_UBOOT)
+							  
+232 OBJS  = $(CPUDIR)/start.o 
+	==> arch/arm/cpu/armv7/start.o							  
+							  
+244 OBJS := $(addprefix $(obj),$(OBJS) $(RESET_OBJS-)) 	
+
+Makefile函数的基本规则:
+$(函数名 参数1,参数2,...,参数n)		
+
+addprefix这个函数干嘛的？不知道。
+
+360 LIBBOARD = board/$(BOARDDIR)/lib$(BOARD).o	
+LIBS就是一堆.o文件给后续链接器使用			  
+$(obj)u-boot.lds  链接脚本					  
+							  
+  1 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
+  2 OUTPUT_ARCH(arm)
+  3 ENTRY(_start) 入口标号为_start，这个标号出现在汇编代码中。
+  4 SECTIONS
+  5 {
+  6  . = 0x00000000; 代表了一个地址，这个地址在链接器执行后会被更新。
+  7  . = ALIGN(4); 以4字节对齐
+  8  .text : 代表了链接器会使用.text段
+  9  {
+ 10   __image_copy_start = .;代码段的起始符号
+ 11   arch/arm/cpu/armv7/start.o (.text*) 链接器从arch/arm/cpu/armv7/start.o开始链接
+ 12   *(.text*)                                                                 
+ 13  }
+ 14  . = ALIGN(4);
+ 15  .rodata : { *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.rodata*))) }
+ 16  . = ALIGN(4);
+ 17  .data : {
+ 18   *(.data*)
+ 19  }
+.......
+}
+
+557 GEN_UBOOT = \
+558         UNDEF_LST=`$(OBJDUMP) -x $(LIBBOARD) $(LIBS) | \
+559         sed  -n -e 's/.*\($(SYM_PREFIX)_u_boot_list_.*\)/-u\1/p'|sort|uniq`;
+560         cd $(LNDIR) && $(LD) $(LDFLAGS) $(LDFLAGS_$(@F)) \
+561             $$UNDEF_LST $(__OBJS) \
+562             --start-group $(__LIBS) --end-group $(PLATFORM_LIBS) \
+563             -Map u-boot.map -o u-boot
+

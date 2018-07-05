@@ -1,0 +1,235 @@
+一、驱动中如何报错？
+1、return -错误码 只有34种情况，加上-之后才称为虚拟地址
+2、IS_ERR();判断一个函数的返回值是否出错，非0值出错
+   ret = PTR_ERR();获取具体的错误值,直接获取了一个虚拟地址
+   当一个函数的返回值是一个指针的时候使用
+   return ret
+内核都是判断虚拟地址的范围来确定是否出错。(FFFFF000,FFFFFFFF]
+
+二、如何实现读写
+读写都是站在用户的角度来考虑问题
+读:数据从内核空间流向用户空间
+写:
+应用层:ssize_t read(int fd,void *buf,size_t size);
+驱动层:ssize_t (*read)(struct file *,char __user *buf,size_t size,loff_t *);
+int copy_to_user(void *to,void *from,size_t size);
+参数1:用户空间缓存区首地址
+参数2:驱动中设置空间首地址
+参数3:实际需要拷贝的字节数
+返回值:非0出错
+
+应用层:ssize_t write(int fd,const void *buf,size_t size);
+驱动层:ssize_t (*write)(struct file *,const char __user *buf,size_t size,loff_t *);
+int copy_from_user(void *to,void *from,size_t size);
+参数1:驱动中设置空间首地址
+参数2:用户空间缓存区首地址
+参数3:实际需要拷贝的字节数
+返回值:非0出错
+
+三、驱动中如果某些功能并没有直接提供接口，我们使用ioctl
+ioctl   老版本中存在，3.14内核中已经被删除了
+unlocked_ioctl，新版本中和ioctl结合了
+compat_ioctl
+
+应用层:int ioctl(int fd,int cmd,...)
+参数1:
+参数2:命令，用来和驱动层代码匹配的
+参数3:可以没有任何内容
+	  也可以有内容——变量名或者变量的地址
+
+驱动层:long (*unlocked_ioctl)(struct file *,unsigned int cmd,unsigned long arg
+
+如果命令直接使用的是2，不能匹配，已经有人使用了，出现了冲突，内核为了避免冲突，将cmd做了一些规定。
+
+cmd是32位的无符号整数，被分成4个部分。
+  8	 8	 2	14
+第一部分:幻数，用来区分哪种驱动或者设备在使用cmd
+第二部分:用来区分哪种驱动或者设备的第几条命令
+第三部分:数据的传递方向，只读、只写、读写、无读写
+第四部分:数据类型的字节数
+
+int cmd = 幻数 << 24 | 序号 << 16 | 方向 << 14 | 数据类型大小	  
+
+内核提供了四个宏函数来操作cmd:
+_IO(幻数,序号)
+_IOR(幻数,序号,类型)
+_IOW(幻数,序号,类型)
+_IOWR(幻数,序号,类型)
+
+如何区分同种设备中的不同子设备？
+
+int open()
+{
+	次设备号 = iminor(struct inode *);
+	filp->private_data = (void *)次设备号;
+}
+
+ssize_t read()
+{
+	int num;
+	
+	num = (unsigned int)filp->private_data;
+}
+
+container_of();
+————————————————————————————————————————————————————————————————————————————————
+第四天
+在soc的内部集成了很多不同种类的物理总线，总线上会挂载各种各样的设备。
+假设有两个厂家的soc，内部的总线协议都是一样的，在总线上挂载的设备可能是不同的(同种的设备，但是是不同厂家生产的)，硬件信息就会不一样，驱动代码就不通用。
+
+之前写过最简单的led驱动，led驱动实现过程中用到了寄存器，换一个厂家led的寄存器和三星的肯定不一样，现在想将之前实现的led驱动拿到另一个平台上使用，因为寄存器的不同造成驱动无法使用。
+前面实现的led驱动可以理解为将驱动代码(驱动的逻辑——框架信息)和硬件信息写死了。
+
+platform总线——本身是一种虚拟总线(内核源码维护)，为了将驱动和设备分离。
+使用platform总线实现的驱动，包含了两个部分——驱动driver.c、设备device.c,通常情况下当我们更换平台时如果使用的是同种设备，此时driver.c可以直接使用，只需要改device.c 
+
+platform总线特性:
+内核实现platform总线时，被分成三大部分:总线源码，驱动源码，设备源码、sysfs文件系统
+在使用过程中，总线的源码内核来实现的，我们需要了解总线提供了哪些结构体和哪些接口。
+驱动代码和设备代码是基于总线源码提供的结构和接口来自己实现的。
+
+总线提供的结构:
+ 22 struct platform_device {//描述platform总线对应的设备信息
+ 23     const char  *name;//可以用于和驱动匹配，如果不用于和驱动匹配这个成员也必须初始化
+						  //出现在/sys/bus/platform/devices目录下
+ 26     struct device   dev;//描述实际的设备信息
+ 27     u32     num_resources;//资源的个数
+ 28     struct resource *resource;
+ 37 };
+
+ struct device
+ {
+	783     void    (*release)(struct device *dev); //释放资源
+ }
+ 
+18 struct resource {                                                           
+ 19     resource_size_t start; //0x11000c40
+ 20     resource_size_t end;// 0x11000c40 + 4 - 1
+ 22     unsigned long flags;
+ 24 };
+platform总线下，flags有三种情况:IORESOURCE_MEM,IORESOURCE_IRQ,IORESOURCE_DMA
+如果flags传递的是IORESOURCE_MEM,则start用来存放寄存器的起始地址，end存放寄存器结束地址
+
+173 struct platform_driver {
+174     int (*probe)(struct platform_device *);//探测函数，当设备和驱动匹配成功时执行
+											   //只要执行了probe函数，它的参数一定合法
+175     int (*remove)(struct platform_device *);//功能和probe中的功能相反
+179     struct device_driver driver;
+180     const struct platform_device_id *id_table;
+182 };
+
+ 228 struct device_driver {
+ 229     const char      *name;//可以和设备匹配，当不和设备匹配时不能省略
+								//出现在/sys/bus/platform/drivers目录下
+ }
+ 
+485 struct platform_device_id {
+486     char name[PLATFORM_NAME_SIZE];//专门用来和设备匹配的
+}
+
+platform总线提供的接口？
+platform_driver_register();//给总线注册驱动
+platform_device_register();//给总线注册设备
+
+platform_driver_unregister();//注销驱动
+platform_device_unregister();//注销设备
+
+platform总线如何实现的匹配(内核做的)？自己不需要做，但是必须理解
+vi -t platform_driver_register
+			||
+			\/
+190 #define platform_driver_register(drv) \                                     
+191     __platform_driver_register(drv, THIS_MODULE)
+					||
+					\/
+		536     drv->driver.bus = &platform_bus_type;//实现匹配
+										||
+										\/
+							 919 struct bus_type platform_bus_type = {                                      
+							 920     .name       = "platform",不是和我们的驱动匹配的
+							 922     .match      = platform_match,//四种匹配方式
+							 925 };
+		537     if (drv->probe) //drv就是platform_driver类型的变量，probe就是这个结构体下面的probe成员
+		538         drv->driver.probe = platform_drv_probe;
+											||
+											\/
+							487     ret = drv->probe(dev);//执行了我们自己封装的probe函数
+
+驱动和设备的加载顺序没有影响。
+驱动和设备的卸载顺序也没有影响，无论先卸载谁都一定先执行驱动的remove接口再执行设备中的release接口。
+——————————————————————————————————————————————————————————————————————————————————————
+设备树的使用
+3.1x内核之后是一个很重要的知识点，不好用。
+
+1、为什么会有设备树？
+linus说:the thole arm thing is the fucking pain in the ass 
+		arm架构下的东西都是垃圾
+曾经的内核版本中，arch/arm/mach- 或者 plat-开头的文件夹内容每当更新内核时这些目录的内容大概有60% - 70%的代码需要重新修改(大部分都是linus来做)，另一方面，arch/arm/目录下所存放的大部分代码都是和平台相关的代码(硬件信息相关的代码)。
+
+linux社区决定参考powerpc架构下的设备树机制——节省大量的代码修改。
+
+2、掌握设备树的原理
+u-boot在使用过程中使用了一条命令:bootm 内核镜像地址 文件系统镜像地址 设备树文件地址
+一旦正常执行bootm，则这条命令会将设备树文件的地址作为参数传递给内核。
+
+在内核启动时会有三个寄存器来接收参数:r0=0 r1=cpu的id r2=atag结构体信息，可能是设备树信息
+121     bl  __vet_atags 判断内核是否真正收到了设备树
+
+509     setup_arch(&command_line);
+		内部会将设备树的二进制文件最终还是转化成了c代码
+
+3、设备树的基本语法
+文件命名方式:xxx.dts设备树源文件
+		     xxx.dtb设备树二进制文件
+			 xxx.dtsi设备树的头文件
+			 DTC 设备树的编译工具
+在所有的设备树文件中，有一个最特殊的文件:arch/arm/boot/dts/skeleton.dtsi不同厂家的不同平台所使用的设备树都会包含它。
+
+ 7 / {
+  8     #address-cells = <1>;
+  9     #size-cells = <1>;
+ 10     chosen { };
+ 11     aliases { };
+ 12     memory { device_type = "memory"; reg = <0 0>; };
+ 13 };
+
+ 所有的设备树文件都会包含两部分内容:节点、属性
+ 当前设备树文件中:
+		节点: /叫做根节点  chosen是根节点的一个子节点  aliases也是一个子节点 memory也是子节点
+		属性:#address-cells 代表的是当前节点的子节点中的reg属性有几个地址
+			 #size-cells代表的是当前节点的子节点中的reg属性有几个偏移量
+			 device_type 只适用于内存节点
+			 reg = <寄存器的基地址1 寄存器的偏移量1 寄存器的基地址2 寄存器的偏移量2>;
+
+exynos4412-origen.dts 包含了 exynos4412.dtsi 包含了 exynos4x12.dtsi 包含了 exynox4.dtsi 包含了 skeleton.dtsi 
+
+非常重要的一个属性:compatible 兼容性
+语法要求: compatible = "samsung,exynos4412","samsung,exynos4","samsung,exynos",....
+		  这个属性的作用:专门用来和驱动匹配的。	
+
+内核中:	
+struct platform_driver
+{
+	struct device_driver driver;
+			||
+			\/
+	{
+		struct of_device_id
+		{
+			char compatible[];存放的内容要和设备树中compatible属性的内容完全一致
+		}
+	}
+};
+
+vi arch/arm/boot/dts/exynos4412-fs4412.dts 
+在根节点下面添加:
+573     fs4412-led{
+574         compatible = "fs4412,led";
+575         reg = <0x11000c40 0x4 0x11000c20 0x4 0x114001e0 0x4>;
+576     };
+在内核顶层目录下重新编译设备树:make dtbs 
+cp  arch/arm/boot/dts/exynos4412-fs4412.dtb /tftpboot
+重启开发板
+执行insmod led_driver.ko 
+如果打印match ok说明驱动和设备树匹配成功了。
+	  

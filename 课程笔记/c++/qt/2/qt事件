@@ -1,0 +1,86 @@
+1.qt常用事件
+事件：qt是事件驱动的，程序的每个动作都是某个事件触发的
+事件分类：Spontaneous events 从系统得到的事件
+		 Posted events 循环处理
+		 send events 直接产生
+
+
+按键事件和QKeyEvent
+QEvent 是所有QT事件的基类，QKeyEvents是QEvent的派生类
+这边可以通过重写
+protected:
+    virtual void keyPressEvent(QKeyEvent *ev);
+
+void myevent::keyPressEvent(QKeyEvent *ev)
+{
+    QLineEdit::keyPressEvent(ev);
+
+    qDebug()<<"root"<<(ev->text());
+}
+
+
+
+鼠标事件：鼠标按下，拖动，抬起时被加入到消息队列中由事件进行处理
+void QWidget::mousePressEvent(QMouseEvent * event)
+鼠标被按下调用
+void QWidget::mouseMoveEvent(QMouseEvent * event)
+鼠标被拖动调用
+void QWidget::mouseReleaseEvent(QMouseEvent * event)
+鼠标被抬起调用
+bool QWidget::event(QMouseEvent * event)
+集上面全部调用
+
+
+鼠标事件和QMouseEvent
+QMouseEvent是QEvent的派生类
+常用接口：
+int QMouseEvent::globalX()相对于屏幕左上角的x坐标
+int QMouseEvent::globaly()相对于屏幕左上角的y坐标
+0----------------------------->x
+|
+|
+|
+|
+|
+|y
+\/
+int QMouseEvent::x()相对于控件左上角的x坐标
+int QMouseEvent::y()相对于控件左上角的y坐标
+
+
+QFrame控件-------》鼠标事件所需控件
+protected:
+    virtual void mousePressEvent(QMouseEvent * ev);
+    virtual void mouseMoveEvent(QMouseEvent * ev);
+    virtual void mouseReleaseEvent(QMouseEvent * ev);
+
+void myframe::mousePressEvent(QMouseEvent * ev)
+{
+    qDebug()<<ev->globalX()<<","<<ev->globalX();
+}
+void myframe::mouseMoveEvent(QMouseEvent * ev)
+{
+    qDebug()<<ev->globalX()<<","<<ev->globalX();
+}
+void myframe::mouseReleaseEvent(QMouseEvent * ev)
+{
+    qDebug()<<ev->globalX()<<","<<ev->globalX();
+
+}
+
+绘图事件
+当控件由不可见变为可见时，或者调用了update
+
+QPainter对控件进行重绘
+
+
+
+自动获取时间值
+void maininterface::timerupdate()
+{
+    QDateTime mytime = QDateTime::currentDateTime();
+    QString str1 = mytime.toString("yyyy-MM-dd");
+    QString str2 = mytime.toString("hh:mm:ss dddd");
+
+    qDebug()<<str1<<str2;
+}

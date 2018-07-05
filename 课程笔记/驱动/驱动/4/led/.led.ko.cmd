@@ -1,0 +1,1 @@
+cmd_/home/linux/teach/17062/driver/4/led/led.ko := arm-none-linux-gnueabi-ld -EL -r  -T /home/linux/linux-3.14/scripts/module-common.lds --build-id  -o /home/linux/teach/17062/driver/4/led/led.ko /home/linux/teach/17062/driver/4/led/led.o /home/linux/teach/17062/driver/4/led/led.mod.o

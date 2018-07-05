@@ -1,0 +1,183 @@
+I2C总线
+起始信号:时钟线为高，数据线由高到低跳变，由主机产生
+结束信号:时钟线为高，数据线由低到高跳变，由主机产生
+
+应答信号:数据线为低电平，保证在第九个时钟周期时钟线为高电平。
+
+从机地址:7位，由具体的设备决定，MPU6050手册决定了110100x  最后一位由AD0引脚决定，接地。
+
+数据帧封装:
+起始信号 + 7位从机地址 读或写  + 应答信号 + 8位数据 + 应答信号 + 8位数据 + 应答信号 ....
++ 结束信号
+
+起始信号 + 7位从机地址 读位 + 应答信号 + 8位数据 + 应答信号 + 起始信号 + 7位从机地址 写位 
++ 应答信号 + 8位数据 + 应答信号 + 结束信号
+
+数据帧到底如何封装必须查看外设的芯片手册中的时序图(或者时序描述)。
+
+I2C子系统
+设备驱动层:自己实现，知道操作哪些数据，但是不知道如何操作数据 
+核心层:内核源码实现，中介  drivers/i2c/i2c-core.c 
+总线驱动层:厂家实现，知道如何操作数据，但是不知道操作哪些数据 drivers/i2c/busses/i2c-s3c2410.c
+
+分析i2c总线驱动:
+1、保证i2c-s3c2410.c一定要编译进内核uImage中
+	查看Makefile Kconfig 操作make menuconfig 找到具体的选项，选为*
+	
+2、进入源码后先去找加载函数，通过加载函数找到probe函数，在probe函数中找到了一个算法，在这个算法的内部实现了数据帧封装所需要的基本内容
+
+3、回到probe函数中，找到一个中断处理函数，在中断处理函数中实现了读和写的具体方法。
+
+
+i2c核心层:
+struct  i2c_driver 描述i2c驱动
+struct i2c_client 描述i2c设备(不是真正设备)，真正设备信息由struct i2c_board_info描述
+
+i2c_add_driver();//注册驱动
+i2c_del_driver();//注销驱动
+
+如果设备和驱动匹配成功，则执行i2c_driver中的probe函数。
+
+MPU6050:这个设备干嘛的？获取三轴加速度、三轴角速度、温度。
+
+无论i2c的外围设备是什么，肯定需要操作相应寄存器(读或者写)，具体的读写方法由总线驱动实现，所以我们自己的设备驱动需要具备调用到总线驱动的能力。
+
+
+属于i2c核心层
+1745 int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+{
+	1785         ret = __i2c_transfer(adap, msgs, num);
+							||
+							\/
+				1722         ret = adap->algo->master_xfer(adap, msgs, num);
+				后续调用代码属于i2c总线驱动层
+}
+
+理解为:i2c核心层的代码可以访问总线驱动。
+如果我们的设备驱动调用了i2c_transfer，又可以理解为:设备驱动——>核心层——>总线驱动
+参数1:代表了i2c适配器
+参数2:i2c消息结构体(这个结构体的封装是最重要的)
+参数3:消息的个数
+
+写时序:
+起始信号 + 7位从机地址 0写位 + 0 + 8位寄存器地址 + 应答位 + 8位寄存器数据 + 应答 
++ 结束信号。 
+这个方法由总线驱动做，设备驱动需要告诉总线驱动具体操作的寄存器地址和内容。
+
+读时序:
+起始信号 + 从机地址 写位 + 应答位 + 8位寄存器地址 + 应答位 + 起始信号 + 从机地址 读位 
++ 应答信号 + 8位寄存器中存放的数据 + 非应答 + 结束信号
+
+输入子系统:
+
+用户空间         应用程序
+——————————————————————————————————————————
+内核空间         系统调用源码
+				   VFS
+				 各种文件系统
+				 各种子系统(输入子系统)
+					 事件处理层——给应用程序提供了和驱动交互的接口
+					 核心层——承上启下(掌握一些重要的函数接口)
+					 设备驱动层——实际操作硬件、自己实现
+——————————————————————————————————————————
+硬件
+					 
+字符设备框架的搭建需要很多的函数接口:regisger_chrdev_region cdev_init cdev_add  cdev_del alloc_chrdev_region kzalloc
+
+也可以选择直接调用register_chrdev来实现框架的搭建(使用这个接口，应用层和底层驱动交互的函数还需要我们自己来定义)。				
+
+如果使用了输入子系统则不仅框架搭建起来方便，而且同时和应用层交互的接口也会给我们定义好。
+
+为什么使用输入子系统？我们搭建框架时很多的接口对于其他的驱动来说可能是不通用的。如果我们想实现通用性，最好调用系统提供的输入子系统。	 
+
+事件处理层:drivers/input/evdev.c 
+核心层:drivers/input/input.c 
+设备驱动层:自己去实现
+
+
+vi drivers/input/input.c 
+2405     err = class_register(&input_class);//创建设备类，在/sys/class目录下创建input
+2411     err = input_proc_init();//在/proc/bus目录创建input文件夹
+2415     err = register_chrdev_region(MKDEV(INPUT_MAJOR, 0),                    
+2416                      INPUT_MAX_CHAR_DEVICES, "input");
+
+所有的输入子系统，主设备号都是13，最多注册1024个输入设备.
+查看Documentation/devices.txt
+488  13 char    Input core
+ 489           0 = /dev/input/js0    First joystick
+ 490           1 = /dev/input/js1    Second joystick                            
+ 491             ...
+ 492          32 = /dev/input/mouse0 First mouse
+ 493          33 = /dev/input/mouse1 Second mouse
+ 494             ...
+ 495          63 = /dev/input/mice   Unified mouse
+ 496          64 = /dev/input/event0 First event queue
+ 497          65 = /dev/input/event1 Second event queue
+ 498             ...
+
+
+
+对于大部分的高级驱动，都会有一个基本使用流程:
+1、对相应的结构体申请空间 struct input_dev *input_allocate_device(void)
+						  为input_dev结构体申请了空间，并且对内部的成员做了初始化。
+2、基本的配置信息
+3、具体的硬件操作
+4、注册申请的结构体到内核中 
+int input_register_device(struct input_dev *dev)
+				||
+				\/
+2137     list_for_each_entry(handler, &input_handler_list, node)
+2138         input_attach_handler(dev, handler);
+						||
+						\/
+	991     error = handler->connect(handler, dev, id);
+
+	确定handler这个结构体的位置。在drivers/input/evdev.c中
+	1205     .connect    = evdev_connect,
+								||
+								\/
+			1121     minor = input_get_new_minor(EVDEV_MINOR_BASE, EVDEV_MINORS, true);
+			1140     dev_no = minor;                                
+			1144     dev_set_name(&evdev->dev, "event%d", dev_no);
+			//自动在/dev/input/目录下创建设备节点
+			//功能类似于device_create();
+			
+			//搭建基本字符设备框架
+			1161     cdev_init(&evdev->cdev, &evdev_fops);
+			1163     error = cdev_add(&evdev->cdev, evdev->dev.devt, 1);
+			
+	evdev_fops的内容:	
+	1065 static const struct file_operations evdev_fops = {事件处理层实现的接口
+	1066     .owner      = THIS_MODULE,
+	1067     .read       = evdev_read,//内部实现了数据的拷贝，而且还有阻塞
+	1068     .write      = evdev_write,
+	1069     .poll       = evdev_poll,
+	1070     .open       = evdev_open,
+	1071     .release    = evdev_release,
+	1072     .unlocked_ioctl = evdev_ioctl,
+	1073 #ifdef CONFIG_COMPAT
+	1074     .compat_ioctl   = evdev_ioctl_compat,
+	1075 #endif
+	1076     .fasync     = evdev_fasync,
+	1077     .flush      = evdev_flush,
+	1078     .llseek     = no_llseek,
+	1079 };		
+总结:只要我们调用了input_register_device()，就会帮我们搭建字符设备框架、设备类、设备文件的自动创建、函数接口的封装。
+
+如果我们在驱动中调用了输入子系统的read函数，同时出现了阻塞，此时我们必须要关心如何唤醒?
+191         wake_up_interruptible(&evdev->wait);
+
+1204     .events     = evdev_events,
+						||
+						\/
+			212         evdev_pass_values(client, vals, count, time_mono, time_real);
+								||
+								\/
+			191         wake_up_interruptible(&evdev->wait);
+			
+或者 1203     .event      = evdev_event,
+								||
+								\/
+			229     evdev_events(handle, vals, 1);
+			......
+如果需要唤醒，可能调用event接口，也可能调用events接口，具体调用谁由核心层函数来决定。	具体调用event还是events由核心层中的input_event()函数来决定。		

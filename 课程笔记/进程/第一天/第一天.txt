@@ -1,0 +1,168 @@
+文件：ascII ，二进制（程序）
+
+进程概念：简单来说，一个程序一次运行的过程。严谨来说，程序执行和资源管理的最小单位
+
+程序：静态的，存储在硬盘上
+进程：动态的，存储在内存上
+
+单核cpu：所有进程在宏观上来说是并行，但在微观上来说是串行
+多核cpu：进程在宏观上来说是并行，但在微观上来说是并行
+
+时间片
+
+进程的生命周期：
+创建（fork）- 调度 - 执行 - 消亡
+
+S：可中断睡眠态
+D：不可中断状态
+R：running（正在运行），runnable（可以运行）
+Z:僵尸态
+T:停止态
+X:死亡态
+
+ps -ef（查看进程号）
+ps -aux（可以查看进程状态）
+pstree （查看进程树）
+
+getpid：获取当前调用进程的进程id
+getppid：获取当前调用进程的父进程id
+
+进程的分类：
+交互进程
+
+批处理进程
+
+守护进程
+
+fork：创建子进程
+返回值：在父进程中返回子进程id，在子进程中返回0，错误返回-1；
+
+
+如果父进程先于子进程退出，则会进行“托孤”，子进程的父进程会变成init（1）；
+
+exit，_exit，_Exit：
+EXIT_SUCCESS：0
+EXIT_FAILURE：1
+
+1、退出进程
+2、关闭所有的文件描述符
+3、托孤
+4、向父进程发送SIGCHLD信号；
+
+僵尸和孤儿
+解决僵尸问题的两种方式
+
+1、忽略SIGCHLD信号
+signal（SIGCHLD，SIG_IGN）；
+
+2、wait
+返回值：成功返回回收子进程id，失败返回-1
+
+waitpid(pid_t pid,int *status，int options)
+参数：pid  <-1  等待任何一个组id和pid绝对值相等的子进程退出
+	   = -1 等待任何一个子进程退出
+           = 0 等待任何一个组id和父进程组id相等的子进程退出
+	   > 0 等待进程id和pid相等的子进程退出
+
+      options：
+	   WNOHANG：设置为非阻塞状态
+		0：阻塞
+
+返回值：成功执行，有子进程退出，返回子进程id，无则返回0；失败返回-1；
+
+exec函数族
+功能：替换进程代码段以及内存中所有数据
+
+
+
+
+
+
+
+
+
+
+signal函数
+在<signal.h> 这个头文件中
+
+signal（参数1，参数2）
+
+参数1；我们要进行处理的信号
+	SIGCHLD
+
+	
+参数2：我们处理的方式
+	SIG_ING 代表忽略SIGINT信号
+	SIG_DFL代表执行系统默认操作
+	
+
+
+
+
+wait（）回收僵尸进程
+
+头文件：
+ #include<sys/types.h>
+
+#include<sys/wait.h>
+
+pid_t wait(int *status);
+
+
+status是等待僵尸进程的状态信息，但实际wait函数是不关心这个状态信息的，一般填NULL
+
+返回值： 返回被回收的进程的pid；
+
+返回-1的情况是该进程没有子进程，否则一直处于阻塞状态，等待销毁的子进程、、
+
+
+
+waitpid:
+#include<sys/types.h>
+#include<sys/wait.h>
+定义函数 pid_t waitpid(pid_t pid,int * status,int options);
+
+pid
+:pid<-1 等待进程组识别码为pid 绝对值的任何子进程。
+pid=-1 等待任何子进程，相当于wait（）。
+pid=0 等待进程组识别码与目前进程相同的任何子进程。
+pid>0 等待任何子进程识别码为pid 的子进程。
+
+
+options:
+WNOHANG 如果没有任何已经结束的子进程则马上返回，不予以等待。
+WUNTRACED 如果子进程进入暂停执行情况则马上返回，但结束状态不予以理会。
+
+status:
+WIFEXITED（status）如果子进程正常结束则为非0 值。
+WEXITSTATUS（status）取得子进程exit（）返回的结束代码，一般会先用WIFEXITED 来判断是否正常结束才能使用此宏。
+WIFSIGNALED（status）如果子进程是因为信号而结束则此宏值为真
+WTERMSIG（status） 取得子进程因信号而中止的信号代码，一般会先用WIFSIGNALED 来判断后才使用此宏。
+WIFSTOPPED（status） 如果子进程处于暂停执行情况则此宏值为真。一般只有使用WUNTRACED 时才会有此情况。
+WSTOPSIG（status） 取得引发子进程暂停的信号代码，一般会先用WIFSTOPPED 来判断后才使用此宏。
+
+
+返回值：成功执行，有子进程退出，返回子进程id，无则返回0；失败返回-1；
+
+
+
+exce函数族
+
+ 所需头文件：
+
+                #include <unistd.h>
+
+
+ 六种调用形式：
+
+                int execl(const char *path, const char *arg, ...)
+
+                int execv(const char *path, char *const argv[])
+
+                int execle(const char *path, const char *arg, ..., char *const envp[])
+
+                int execve(const char *path, char *const argv[], char *const envp[])
+
+                int execlp(const char *file, const char *arg, ...)
+
+                int execvp(const char *file, char *const argv[])

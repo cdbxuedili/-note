@@ -1,0 +1,80 @@
+
+key_led.elf:     file format elf32-littlearm
+
+
+Disassembly of section .text:
+
+02023400 <_start>:
+ 2023400:	e59fd024 	ldr	sp, [pc, #36]	; 202342c <ps_hold_on+0x1c>
+ 2023404:	eb000001 	bl	2023410 <ps_hold_on>
+ 2023408:	eb00000a 	bl	2023438 <main>
+
+0202340c <halt_loop>:
+ 202340c:	eafffffe 	b	202340c <halt_loop>
+
+02023410 <ps_hold_on>:
+ 2023410:	e59f0018 	ldr	r0, [pc, #24]	; 2023430 <ps_hold_on+0x20>
+ 2023414:	e5901000 	ldr	r1, [r0]
+ 2023418:	e3811c03 	orr	r1, r1, #768	; 0x300
+ 202341c:	e5801000 	str	r1, [r0]
+ 2023420:	e59f000c 	ldr	r0, [pc, #12]	; 2023434 <ps_hold_on+0x24>
+ 2023424:	e3a01000 	mov	r1, #0
+ 2023428:	e5801000 	str	r1, [r0]
+ 202342c:	02027800 	andeq	r7, r2, #0, 16
+ 2023430:	1002330c 	andne	r3, r2, ip, lsl #6
+ 2023434:	11000c08 	tstne	r0, r8, lsl #24
+
+Disassembly of section .text.startup:
+
+02023438 <main>:
+ 2023438:	e3a02411 	mov	r2, #285212672	; 0x11000000
+ 202343c:	e3a01811 	mov	r1, #1114112	; 0x110000
+ 2023440:	e3a03545 	mov	r3, #289406976	; 0x11400000
+ 2023444:	e3a00000 	mov	r0, #0
+ 2023448:	e58311e0 	str	r1, [r3, #480]	; 0x1e0
+ 202344c:	e1a01002 	mov	r1, r2
+ 2023450:	e5820c20 	str	r0, [r2, #3104]	; 0xc20
+ 2023454:	e5912c24 	ldr	r2, [r1, #3108]	; 0xc24
+ 2023458:	e3120002 	tst	r2, #2
+ 202345c:	e59321e4 	ldr	r2, [r3, #484]	; 0x1e4
+ 2023460:	13c22010 	bicne	r2, r2, #16
+ 2023464:	03822010 	orreq	r2, r2, #16
+ 2023468:	e58321e4 	str	r2, [r3, #484]	; 0x1e4
+ 202346c:	eafffff8 	b	2023454 <main+0x1c>
+
+Disassembly of section .ARM.attributes:
+
+00000000 <.ARM.attributes>:
+   0:	00002c41 	andeq	r2, r0, r1, asr #24
+   4:	61656100 	cmnvs	r5, r0, lsl #2
+   8:	01006962 	tsteq	r0, r2, ror #18
+   c:	00000022 	andeq	r0, r0, r2, lsr #32
+  10:	4b5a3605 	blmi	168d82c <_start-0x995bd4>
+  14:	08070600 	stmdaeq	r7, {r9, sl}
+  18:	0a010901 	beq	42424 <_start-0x1fe0fdc>
+  1c:	14041202 	strne	r1, [r4], #-514	; 0x202
+  20:	17011501 	strne	r1, [r1, -r1, lsl #10]
+  24:	1a011803 	bne	46038 <_start-0x1fdd3c8>
+  28:	44031b02 	strmi	r1, [r3], #-2818	; 0xb02
+  2c:	Address 0x0000002c is out of bounds.
+
+
+Disassembly of section .comment:
+
+00000000 <.comment>:
+   0:	3a434347 	bcc	10d0d24 <_start-0xf526dc>
+   4:	72632820 	rsbvc	r2, r3, #32, 16	; 0x200000
+   8:	7473736f 	ldrbtvc	r7, [r3], #-879	; 0x36f
+   c:	2d6c6f6f 	stclcs	15, cr6, [ip, #-444]!	; 0xfffffe44
+  10:	6820474e 	stmdavs	r0!, {r1, r2, r3, r6, r8, r9, sl, lr}
+  14:	65642b67 	strbvs	r2, [r4, #-2919]!	; 0xb67
+  18:	6c756166 	ldfvse	f6, [r5], #-408	; 0xfffffe68
+  1c:	36322d74 			; <UNDEFINED> instruction: 0x36322d74
+  20:	66643538 			; <UNDEFINED> instruction: 0x66643538
+  24:	65643961 	strbvs	r3, [r4, #-2401]!	; 0x961
+  28:	2d203431 	cfstrscs	mvf3, [r0, #-196]!	; 0xffffff3c
+  2c:	30637420 	rsbcc	r7, r3, r0, lsr #8
+  30:	29323030 	ldmdbcs	r2!, {r4, r5, ip, sp}
+  34:	362e3420 	strtcc	r3, [lr], -r0, lsr #8
+  38:	Address 0x00000038 is out of bounds.
+

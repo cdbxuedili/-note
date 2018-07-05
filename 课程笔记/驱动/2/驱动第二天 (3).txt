@@ -1,0 +1,284 @@
+模块的基本用法:
+模块的本身是一个在内核空间中可以任意添加或者删除的代码
+
+模块的运行空间在内核，入口函数是加载函数，接口调用是内核函数，空间必须手动释放
+
+加载模块命令:insmod xxx.ko
+卸载:rmmo xxx 
+查看内核打印信息:dmesg 
+
+模块的三要素:
+模块声明:MODULE_LICENSE("协议名称");
+加载函数:
+	默认加载函数:int init_module(void);
+			使用方法:
+				int init_module(void)
+				{
+					功能
+					return 0;
+				}
+	自定义加载函数
+			就是对默认的加载函数取别名
+			
+			int 加载函数名(void)
+			{
+				return 0;
+			}
+			module_init(加载函数名);
+			
+卸载函数
+	默认卸载函数:void cleanup_module(void)
+			使用方法:
+				void cleanup_module(void)
+				{
+					功能
+					return;
+				}
+	自定义卸载函数:
+			void 卸载函数名(void)
+			{
+				功能
+			}
+			module_exit(卸载函数名);
+			
+
+vi -t module_init 选择4
+177     initcall_t __initcall_##fn##id   = fn
+
+__initcall_自定义函数名6 = 自定义函数名
+
+__attribute__((__section__(".initcall" #id ".init")))
+告诉编译器代码被编译到.initcall6.init分段中
+
+模块的编译方法:
+内部编译:写好的驱动源码要拷贝到内核的指定目录下
+		 操作Makefile 和 Kconfig文件来实现编译方法
+
+外部编译:
+自己写的Makefile，去调用内核的Makefile，需要使用内核提高的模块编译方法。
+需要告诉内核哪个源文件参与编译
+
+ifeq ($(KERNELRELEASE),)
+modules:
+	make -C 内核源码的绝对路径 M=驱动所在路径 modules
+	
+clean:
+	make -C 内核源码的绝对路径 M=驱动所在路径 clean
+else
+obj-m += xxx.o 
+endif
+
+模块的符号表导出:
+符号:函数名或者变量名
+在函数的定义或者变量定义下面使用EXPORT_SYMBOL(名称);   EXPORT_SYMBOL_GPL(名称);
+被导出的符号表存放在Module.symvers
+
+虚拟地址 = ioremap(物理地址,大小);进行地址映射
+取消映射: iounmap(虚拟地址);
+
+读取到的内容 = readl(虚拟地址);
+writel(写入的内容,虚拟地址);
+——————————————————————————————————————————————————————————————————————————————————————
+第二天:
+1、什么是框架——一堆的结构和一堆的函数接口的组合
+	对于os的开发者分为三类人:
+	1) 专门维护内核源码的
+	2) 特定厂家的接口开发者
+	3) 使用内核开发者和厂家开发人员提供的接口来做项目的人
+
+	内核源码的维护者根据不同厂家的设备，或者同厂家的不同设备，如果有相同的功能需求的一部分做好了通用的接口，这些通用的接口就是操作系统提供的所谓框架。
+	
+2、框架分类
+	字符设备框架
+	能操作的是字符设备，比如键盘，鼠标，摄像头等等，每次按照顺序读取一个字节，可能随机
+	读取一个字节的数据。
+	每个字符设备都会有一个设备文件对应，这个设备文件用c表示	
+		
+	快设备框架
+	能操作块设备，比如磁盘、emmc、flash等等，每次读取的数据为512字节或者是大于512并且是2
+	的n次方
+	每个块设备，有一个设备文件和其对应，用b表示。
+	
+	网络设备框架
+		不同的厂家不同的设备，框架不同，没有对应的设备文件。
+		
+		
+3、如何创建设备文件？
+	open("1.txt",O_RDWR | O_CREAT);//没有创建设备文件的功能
+	mknod命令或者mknod函数
+	
+	mknod "设备文件名" 设备文件的类型  主设备号  次设备号
+	mknod "/dev/demo"  c   500  0   只要它创建成功，文件系统结构里包含了demo相关信息
+	为什么要创建这个文件？为了给应用程序打开的
+
+4、在操作系统中，驱动的功能是由应用程序来调用的
+
+
+用户空间		应用程序：使用了一系列的系统调用open	
+—————————————————————————————————||—————————————————————————————-
+内核空间						 \/						|
+						     系统调用源码				|
+								 ||						|
+								 \/				设备号和文件系统的绑定	
+								 VFS					|
+								 ||						|
+								 \/						|
+							 各种类型的文件系统——结构体和接口
+							     ||						|
+								 \/				驱动和文件系统间也需要绑定设备号
+							    驱动 open read write等等函数的实现
+—————————————————————————————————||———————————————————————————————————
+                                 \/
+								硬件
+
+
+如果只是创建了设备文件，只能说明内核中的文件系统认识了它。
+如果应用程序打开了设备文件，可以说明从应用程序到文件系统建立了联系
+以上两个实现操作暂时还不能访问到驱动代码，在os中有很多各种类型的驱动，也就是说我们的应用
+程序需要区分出它要和哪个具体的驱动通信。
+
+5、设备号的特性
+	设备号是一个32位的无符号整数，其中高12位叫做主设备号，低20位叫做次设备号。
+	
+	其中主设备号代表了一类设备。
+	次设备号代表的是某类设备下的具体设备
+	例子:当前的开发板上有4个led灯，他们是同种设备，让他们的主设备号相同假设都是500
+		 其中第一个灯的次设备号可以是0  第二灯的次设备号就是1
+		
+	驱动中也需要单独来实现设备号的封装:
+	1、dev_t devno;
+		devno = 主设备号 << 20 | 次设备号 
+	
+	2、提供了一个宏函数
+		设备号 = MKDEV(主设备号,次设备号);//注意:此时文件系统认识驱动的设备号
+		
+	如果我们已知设备号，如何获取到主设备号以及次设备号？
+	主设备号 = MAJOR(设备号);
+	次设备号 = MINOR(设备号);
+	
+	
+6、字符设备框架的接口
+	int register_chrdev_region(dev_t from, unsigned count, const char *name)
+	功能:给文件系统注册设备号
+	参数1:如果设备号是连续的，则传递第一个设备号
+	参数2:设备号连续的个数
+	参数3:这是一个名称，出现在/proc/devices=====》与主设备号绑定
+						用来给用户查看设备信息是否注册成功
+
+	
+	void unregister_chrdev_region(dev_t from, unsigned count)
+	功能:注销设备号
+	参数1:起始设备号
+	参数2:连续的设备号的个数
+	
+	如果我们想要用上层的open来操作底层的open必须要先了解两个结构体
+	 12 struct cdev {                                                               
+	 13     struct kobject kobj;//最难的，先了解，用来创建目录或者文件的
+	 14     struct module *owner;//只要见到owner就传递THIS_MODULE
+	 15     const struct file_operations *ops;//自己定义并且封装好的结构体赋值过来
+	 16     struct list_head list;//用来构建双向链表，内核中任何的双向链表都可以用它实现
+	 17     dev_t dev;//存放设备号
+	 18     unsigned int count; //设备的个数
+	 19 };
+	 
+	1525 struct file_operations {
+		函数指针; 被驱动代码调用
+	}
+	
+	void cdev_init(struct cdev *cdev, const struct file_operations *fops)
+	功能:初始化cdev结构体
+	
+	int cdev_add(struct cdev *p, dev_t dev, unsigned count)
+	功能:初始化cdev结构体
+	参数1:
+	参数2:起始设备号
+	参数3:连续的设备的个数
+	
+	void cdev_del(struct cdev *p)
+	功能:注销字符设备
+	
+	vi arch/arm/include/uapi/asm/unistd.h
+	
+7、驱动如何去搭建字符设备框架
+	1)模块三要素
+	2)加载函数中:
+		设置设备号
+		注册设备号
+		初始化cdev结构体
+	3)卸载函数中:
+		注销cdev结构体
+		注销设备号
+		
+8、字符设备框架的优化
+	将原来的静态注册设备号方式改成动态注册方式
+int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count,const char *name)
+参数1:使用前不需要设置号具体的设备好，只需要定义一个dev_t类型的变量，然后取地址
+参数2:起始的次设备号
+参数3:连续的次设备号个数
+参数4:一个名称，出现在/proc/devices
+
+	static inline void *kzalloc(size_t size, gfp_t flags)
+	功能:动态申请内存空间
+	参数1:申请的空间字节数
+	参数2:GFP_USER在用户空间申请
+		  GFP_KERNEL在内核空间申请
+	
+	
+	只要文件被创建成功，在内核中就会生成一个inode结构体，不同的文件inode结构体是独立的
+	这个结构体内部存放的内容都属于静态属性。
+	struct inode 
+	{
+		struct cdev *i_cdev;
+	};
+	
+	
+	file结构体描述的是文件的动态信息，每当打开一次文件时，则内核会创建一个新的file结构体
+	struct file 
+	{
+	     struct inode        *f_inode;   /* cached value */
+	     const struct file_operations    *f_op;
+	};
+	
+9、如何自动创建设备文件
+	struct class *class_create(THIS_MODULE,字符串名称)
+	
+	struct device *device_create(struct class *class, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...)
+	参数1:class_create的返回值
+	参数2:父类设备，如果没有父类设备传递NULL
+	参数3:设备号
+	参数4:给具体设备传递的参数，如果不需要写NULL
+	参数5:会在类的下面创建一个软链接，可以是软链接的名称，这个链接文件名称一定和设备文件名相同。
+	参数6:可以被省略，也可以使用到
+	
+	void class_destroy(struct class *cls) 注销设备类
+	void device_destroy(struct class *class, dev_t devt) 注销设备文件
+	
+	挂载sysfs的原因之一:需要在sysfs文件系统中创建设备类
+	sysfs       /sys            sysfs    defaults       0             0
+	
+	为什么能创建出设备文件？
+	1）(/sbin/hotplug) path to uevent helper  内核中的一个选项
+	2）echo /sbin/mdev>/proc/sys/kernel/hotplug  实现热插拔——即插即用
+	   执行完这句话后(/sbin/hotplug) path to uevent helper变成:
+					 (/sbin/mdev) path to uevent helper
+	3)这里的mdev是什么？它是busybox生成的一个命令。说明busybox中有mdev的源码
+	4)mdev的源码在:busybox-1.22.1/util-linux/mdev.c 
+		a、帮助我们切换工作路径到/dev 
+		b、遍历/sys/class下面的所有的目录以及子目录，会去寻找一个叫做dev的属性文件
+			dev属性文件中包含了主次设备号
+		c、每当找到一个dev文件后，就会调用一次mknod函数，进而创建出设备文件
+		
+自动生成设备文件1：
+				1、class_create(THIS_MODULE,字符串名称)  在/sys/class 中生成字符串名称 创建的是设备类
+				2、device_create(struct class *class, struct device *parent, dev_t devt, void *drvdata, 字符串1, ...)   在/sys/class/字符串/字符串1
+				||
+				\/
+				最终在/dev/设备文件  =》字符串1
+
+自动生成多个设备文件1：
+				1、class_create(THIS_MODULE,字符串名称)  在/sys/class 中生成字符串名称 创建的是设备类
+				2、device_create(struct class *class, struct device *parent, dev_t devt, void *drvdata, 字符串, i)   在/sys/class/字符串/字符串1
+				||
+				\/
+				最终在/dev/设备文件 =>字符串0 -----》字符串i
+

@@ -1,0 +1,174 @@
+原子操作
+atomic_set(&v,1);
+atomic_dec_and_test();
+atomic_inc();
+
+自旋锁
+1、关抢占
+2、判断V == 0？
+   如果V == 0 条件成立
+   执行3
+3、设置V = 1
+4、临界区代码
+5、设置V = 0并且开启抢占
+
+自旋锁中不能有任何延时或者睡眠函数。
+
+信号量
+互斥锁/互斥体
+
+驱动的IO模型:阻塞、多路复用
+init_waitqueue_head();初始化等待队列头
+
+wait_event()   TASK_UNINTERRUPTIBLE
+wake_up()
+
+//wait_event_interruptible(); TASK_INTERRUPTIBLE
+//wake_up_interruptible();
+
+
+多路复用:
+select最终调用了file_operations中的poll接口
+
+第七天
+
+什么是中断？
+中断分类:
+按照中断来源:内部中断和外部中断
+内部中断:arm的cpu中涉及到的异常
+外部中断:由某些外部设备的中断信号接口触发
+	SPI:共享中断 多个中断机制使用同一个中断入口
+	PPI:私有中断 每个中断有自己独立的中断入口
+//	SGI:软中断(不同的cpu之间进行通信时使用)
+
+按照中断入口跳转方式不同进行分类:
+向量中断：有固定的唯一的入口地址进行跳转
+非向量中断:多个中断共享一个入口，进入入口后不同中断由软件来区分自己使用哪个入口。
+
+中断涉及到的基本架构
+外设 中断控制器 cpu 
+
+如果需要实现按键驱动，那么查看原理图，按键的相关引脚会被设置为中断引脚。
+所以我们在添加设备树时需要添加中断的相关信息，如何添加?
+
+
+在底板原理图中找到UART_RING标号——>根据UART_RING标号到核心板原理图中找到——GPX1_1
+通过上面过程已经找到了中断控制器——gpx1(我怎么知道的？)。
+
+vi arch/arm/boot/dts/exynos4x12-pinctl.dtsi
+571         gpx1: gpx1 {                                                        
+572             gpio-controller;
+573             #gpio-cells = <2>;
+574 
+575             interrupt-controller;//代表gpx1是一个中断控制器
+576             interrupt-parent = <&gic>;//gpx1中断控制器的父亲是gic
+577             interrupts = <0 24 0>,<0 25 0>,<0 26 0>;
+579             #interrupt-cells = <2>; //子节点中中断源中值的个数
+580         };
+总结:按键UART_RING 连接了 GPX1中断控制器 连接了 GIC 连接了 CPU
+
+
+在按键中断中，interrupts属性的特点:
+vi Documentation/devicetree/bindings/arm/gic.txt
+interrupts属性可能有3个值，可能有2个值，可能有1个值
+1、如果有3个值:
+interrupts = <val1 val2 val3>;
+val1代表了中断类型，0代表共享中断，1代表私有中断
+
+val2代表了中断号(HW interrupt ID——硬件中断号，专门给指定的某个中断控制器使用的)
+对于val2来说，如果使用的节点是一个中断控制器，直接写中断号，但是如果不是中断控制器，此时
+val2应该是一个索引值，索引了当前节点连接的中断控制器中的中断号。
+
+val3代表中断触发方式:
+有四个值可以使用，1代表上升沿触发 2代表下降沿触发 4高电平触发  8低电平触发
+
+interrupt-parent = <&gpx1>;  中断父节点
+interrupts = <0 1 2>; 中断源
+
+2、如果interrupts只有两个值:
+	interrupts = <val1 val2>;	
+val1是索引硬件中断号的一个索引值
+val2触发方式
+其中中断类型继承了上一级节点的中断类型。
+
+3、如果interrupts只有1个值
+	interrupts = <索引值>;
+	
+如何实现自己的按键驱动相关设备树节点信息？
+fs4412-key{
+	compatible = "fs4412,key";//和驱动中的.compatible成员匹配
+	
+	interrupt-parent = <&gpx1>;
+	interrupts = <1 2>,<2 2>;
+}；
+
+既然按键相关的硬件信息已经完成，下面要实现驱动代码。
+驱动必然要从设备树中提取中断信息，提取出中断信息后将中断信息注册进内核。
+
+1、为什么要注册进内核？
+	了解内核的中断子系统
+	 40 struct irq_desc {
+	 41     struct irq_data     irq_data;                                           
+	 47     struct irqaction    *action;    /* IRQ action list */
+	};
+	
+	146 struct irq_data {
+		152     struct irq_chip     *chip;
+	};
+	
+	308 struct irq_chip {
+	309     const char  *name;  	    中断控制器名称                                                  
+	310     unsigned int    (*irq_startup)(struct irq_data *data);
+	311     void        (*irq_shutdown)(struct irq_data *data);
+	312     void        (*irq_enable)(struct irq_data *data);
+	313     void        (*irq_disable)(struct irq_data *data);
+	};
+	
+	105 struct irqaction {                                                          
+	106     irq_handler_t       handler;//自己的中断处理函数，需要自己传递给内核
+	109     struct irqaction    *next;//只有使用共享中断时才有用
+	112     unsigned int        irq;//硬件中断号 
+	118 } ____cacheline_internodealigned_in_smp;
+——————————————————————————————————————————————————————————————————————————————————————
+以上信息都是内核在维护，我们需要将外设驱动的中断操作函数，中断号，触发方式...注册进内核	
+	
+2、如何将设备号信息注册进内核
+static inline int __must_check                                             request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,const char *name, void *dev)
+功能:注册中断号到内核中
+参数1:硬件中断号 
+参数2:自定义的中断处理函数
+参数3:IRQF_SHARED说明使用的是共享中断
+	  如果使用的是IRQF_DISABLED使用快中断，使用快速中断时其他中断都会被屏蔽。
+	  30 #define IRQF_TRIGGER_RISING 0x00000001    上升沿触发
+	 31 #define IRQF_TRIGGER_FALLING    0x00000002  下降沿触发
+	 32 #define IRQF_TRIGGER_HIGH   0x00000004   高电平触发
+	 33 #define IRQF_TRIGGER_LOW    0x00000008   低电平触发
+	 所以参数3可能的用法如:IRQF_DISABLED | IRQF_TRIGGER_FALLING
+参数4:代表了中断名称，只要中断被注册成功，中断名称就会出现在/proc/interrupts
+参数5:使用共享中断时会使用，其他情况传递NULL
+
+对于参数1代表的硬件设备号，我们需要从设备树中提取。
+struct resource *platform_get_resource(struct platform_device *dev,unsigned int type, unsigned int num) 
+参数1:使用的是probe函数的参数
+参数2:IORESOURCE_MEM  或者 IORESOURCE_IRQ
+参数3:数组下标     
+	比如:struct resource str[10];
+返回值:索引到的struct resource结构体数组的某个元素的首地址
+
+开始实现按键驱动(基于platform总线的)
+
+驱动中通过定时器实现消抖:
+1、初始化定时器 init_timer();
+	自己初始化定时器中断处理函数。
+2、将定时器添加到内核中 add_timer();
+
+3、设置延时时间 mod_timer(,jiffies + 5 * HZ / 100);延时50ms
+
+4、一旦定时器时间到达，会执行定时器的中断处理函数
+
+
+
+
+
+
+

@@ -1,0 +1,335 @@
+【1】复习
+   make   mrproper
+   交叉编译器
+   cp  arch/arm/configs/exynos_defconfig  .config  ------->make  exynos_defconfig
+    make menuconfig
+    make  uImage 
+
+
+  mconf 
+  Kconfig:
+    mainmenu:
+    menu:
+    source
+    config 
+    depends  on 
+
+
+Kconfig                      .config                      Makefile
+
+config  TEST                CONFIG_TEST=y                   obj-$() +=test.o
+
+
+   bool ""	
+	
+make  modules
+   [m] 
+
+  insmod  hello.ko
+
+  make  dtbs
+  
+  platform_driver                platform_device  
+  probe(platform_device)
+  remove
+  
+  
+  设备树：
+      /
+	  nodename@unit-addr{
+	  
+	     compatible=
+		 reg =<起始地址  偏移大小   起始地址  偏移大小>;
+		 interrupt-parent = <&>;
+	  
+	  };
+	  
+
+【2】摄像头驱动
+      usb 摄像头
+	      免驱   uvc
+		  驱动   没有遵循uvc
+		     vid     pid  
+			 0ac8    303b
+			 
+      mipi的摄像头
+      IIC/SPI总线的摄像头	  
+	  
+	  双目摄像头
+
+【3】uImage是如何生成的？
+    面试题：uImage 和zImage区别？
+	
+   make  uImage 
+
+Makefile:
+    504 include $(srctree)/arch/$(SRCARCH)/Makefile  
+                    arch/arm/Makefile
+	  
+	
+  arch/arm/Makefile:  uImage	
+  299 BOOT_TARGETS    = zImage Image xipImage bootpImage uImage  
+  291 boot := arch/arm/boot
+  304 $(BOOT_TARGETS): vmlinux
+305     $(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@  
+        uImage:vmlinux  
+             make  -f = arch/arm/boot  	 arch/arm/boot/uImage	
+  
+ arch/arm/boot/Makefile   uImage 
+ 78 $(obj)/uImage:  $(obj)/zImage FORCE
+ 79     @$(check_for_multiple_loadaddr)
+ 80     $(call if_changed,uimage) 
+    uImage:zImage  FORCE  
+	    call if_changed,uimage    
+		     zImage通过uimage命令在文件的头部加入64byte(镜像的类型，镜像的名字，创建
+			 的时间，数据的大小，加载地址和运行地址).
+
+
+arch/arm/boot/Makefile  zImage
+ 54 $(obj)/zImage:  $(obj)/compressed/vmlinux FORCE                                                            
+ 55     $(call if_changed,objcopy)
+
+    zImage：./compressed/vmlinux  
+	   call  if_changed   objcopy   elf------->bin
+	   
+arch/arm/boot/compressed/Makefile   vmlinux  
+ HEAD    = head.o
+ 26 OBJS    += misc.o decompress.o
+  86 suffix_$(CONFIG_KERNEL_GZIP) = gzip   
+185 $(obj)/vmlinux: $(obj)/vmlinux.lds $(obj)/$(HEAD) $(obj)/piggy.$(suffix_y).o \
+186         $(addprefix $(obj)/, $(OBJS)) $(lib1funcs) $(ashldi3) \
+187         $(bswapsdi2) FORCE
+188     @$(check_for_multiple_zreladdr)                                                                        
+189     $(call if_changed,ld)
+      vmlinux:./vmlinux.lds   head.o    misc.o decompress.o  piggy.gzip.o
+        call if_changed,ld
+		
+		
+		piggy.gzip.o<-----piggyz.gzip.S <---incbin-------piggy.gzip
+		
+		192 $(obj)/piggy.$(suffix_y): $(obj)/../Image FORCE
+193     $(call if_changed,$(suffix_y))
+        piggy.gzip:../Image 
+		   call  if_changed  gzip  
+		   
+arch/arm/boot/Makefile		  
+47 $(obj)/Image: vmlinux FORCE
+ 48     $(call if_changed,objcopy)
+ 49     @$(kecho) '  Kernel: $@ is ready'
+
+Image:vmlinux   在内核的顶层目录
+     call  if_changed  objcopy  
+	 
+
+
+Makefile：   vmlinux
+  805 export KBUILD_LDS          := arch/$(SRCARCH)/kernel/vmlinux.lds	
+                                    arch/arm/kernel/vmlinux.lds   
+ 810 vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_INIT) $(KBUILD_VMLINUX_MAIN)	 
+ 818 vmlinux: scripts/link-vmlinux.sh $(vmlinux-deps) FORCE
+
+ 
+ 
+ 
+                         uImage   arch/arm/boot 
+                           |
+                           |
+						 uimage  
+                           |
+                           |   						    
+	                     zImage   arch/arm/boot    压缩后的内核  3M
+						    |
+							|
+							|
+						   objcopy	
+							|
+							|
+					     vmlinux  arch/arm/boot/compressed/		
+						    |
+							|
+						   ld	
+							|
+							|
+							|
+				/vmlinux.lds   head.o    misc.o decompress.o  piggy.gzip.o
+                                                                   |
+                                                                   |
+                                                                     
+						                                       piggy.gzip.S 
+															       |
+																   | inbin  
+																   | 
+								------------gzip--------------piggy.gzip      rch/arm/boot/compressed/
+								|
+                                |
+						      Image  arch/arm/boot 		  解压后的内核  5.9M
+							    |
+                                |
+							  objcopy 	
+                                |
+                                |
+                             vmlinux   内核的顶层目录
+                   arch/arm/kernel/vmlinux.lds   *			
+
+【4】内核的启动流程
+   make  tags  创建索引文件
+   arch/arm/kernel/vmlinux.lds  
+  arch/arm/kernel/head.S 
+  ENTRY(stext) 
+          获取处理器的id
+     94     mrc p15, 0, r9, c0, c0      @ get processor id
+	       判断内核定义的id和读取处理器的id进行比较，如果相同说明内核支持处理器，
+		   如果不同，执行   beq __error_p
+ 95     bl  __lookup_processor_type     @ r5=procinfo r9=cpuid  
+       
+		__error_p   内核不支持处理器
+        __error_a	 内核不支持架构  arch    printascii 
+
+     137     ldr r13, =__mmap_switched       @ address to jump to after
+		144 1:  b   __enable_mmu 
+   		63 ENTRY(__turn_mmu_on)
+464     mov r0, r0
+465     instr_sync
+466     mcr p15, 0, r0, c1, c0, 0       @ write control reg
+467     mrc p15, 0, r3, c0, c0, 0       @ read id reg
+468     instr_sync
+469     mov r3, r3
+470     mov r3, r13                                                                                            
+471     mov pc, r3
+
+__mmap_switched:
+     89 
+ 90     mov fp, #0              @ Clear BSS (and zero fp)
+ 91 1:  cmp r6, r7
+ 92     strcc   fp, [r6],#4
+ 93     bcc 1b
+ 94                     清bss段
+ 
+ 104     b   start_kernel
+ 
+      rest_init();
+	       kernel_thread(kernel_init, NULL, CLONE_FS | CLONE_SIGHAND);
+		   870     }                                                                                                      
+871     if (!try_to_run_init_process("/sbin/init") ||
+872         !try_to_run_init_process("/etc/init") ||
+873         !try_to_run_init_process("/bin/init") ||
+874         !try_to_run_init_process("/bin/sh"))
+        内核最终执行init进程
+		
+		setenv  bootargs   init=/linuxrc   rootfs/linuxrc  当内核启动结束后，执行的第一个
+		 应用程序  linuxrc 
+
+内核的启动流程：
+   1、自解压
+   2、 获取处理器的id和内核的id比较，如果相同，说明内核支持处理器，如果不同执行error_P
+   3、 使能MMU,打开mmu  ,内核运行的虚拟地址  0xc0008000
+   4、清bss段
+   5、各种初始化
+        timer
+		中断
+		终端
+   6、创建init进程
+   7、执行init进程  init=/linuxrc   （rootfs:linuxrc)  应用程序启动
+   
+【5】文件系统移植
+    1、下载busybox源码
+	     https://busybox.net/downloads/
+    2、解压缩		 
+	   tar xvf busybox-1.28.3.tar.bz2 
+	3、移植
+	   make menuconfig 
+	   
+	    Settings  --->
+          (arm-none-linux-gnueabi-) Cross compiler prefix     
+      
+    miscutils/nandwrite.c: In function 'nandwrite_main':
+miscutils/nandwrite.c:147:3: error: 'MTD_FILE_MODE_RAW' undeclared (first use in this function)
+miscutils/nandwrite.c:147:3: note: each undeclared identifier is reported only once for each function it appears in
+make[1]: *** [miscutils/nandwrite.o] Error 1
+make: *** [miscutils] Error 2
+   
+      make menuconfig
+          Miscellaneous Utilities  --->	  
+	                [ ] nandwrite (5.9 kb)                                                               │ │  
+  │ │               [ ] nanddump (6.3 kb)  
+  
+      make  
+	  
+	  
+	  make  install  
+	  
+	  
+[    1.870000] Failed to execute /linuxrc (error -2).  Attempting defaults...
+[    1.880000] Kernel panic - not syncing: No working init found.  Try passing init= option to kernel. See Linux Documentation/init.txt for guidance.
+
+	 执行linuxrc可执行程序寻找的动态库的路径在/lib，文件系统在移植时默认没有lib目录.
+	 
+	 解决方法：
+	     1、将交叉编译器所在目录下的.so  拷贝过去   /rootfs/lib  
+		 2、将文件系统编译生成静态库
+	
+    2、文件系统编译生成静态库
+      make  menuconfig 
+        Settings  --->    	  
+       [*] Build static binary (no shared libs) 	  
+		 
+	 make  
+	 
+	 
+	 
+	3、文件系统编译生成动态库
+	     make  menuconfig 
+        Settings  --->    	  
+       [] Build static binary (no shared libs) 	
+	   
+	   make
+	   
+	   [    1.840000] Freeing unused kernel memory: 232K (c0556000 - c0590000)
+can't run '/etc/init.d/rcS': No such file or directory
+
+can't open /dev/tty2: No such file or directory
+can't open /dev/tty3: No such file or directory
+can't open /dev/tty4: No such file or directory
+can't open /dev/tty2: No such file or directory
+
+   mkdir -p  /rootfs/etc/init.d
+   touch  /rootfs/etc/init.d/rcS 
+    
+   mkdir  /rootfs/dev 
+   
+   
+   can't run '/etc/init.d/rcS': Permission denied
+   
+
+   chmod  777  /rootfs/etc/init.d/rcS 
+   
+	  
+  3 /bin/mount -a           解析fstab                                                                                        
+  4 mkdir /dev/pts
+  5 mount -t devpts devpts /dev/pts
+  6 echo /sbin/mdev>/proc/sys/kernel/hotplug
+  7 mdev  -s   自动创建设备文件
+  
+ 
+将之前的rootfs/etc   
+ 2171  cp profile  /rootfs/etc
+ 
+ 2174  cp  inittab   /rootfs/etc
+ 2187  cp rcS   /rootfs/etc/init.d  
+ 
+ 
+开机启动应用程序
+   etc/init.d/rcS     + 里面加死循环程序  --》 程序进入死循环--》进入不了界面
+                        + 可执行程序后面加 &  可让程序在后台执行
+   
+【6】设置用户和密码
+    inittab   /bin/sh ----->/bin/login
+    cp  /etc/passwd  /rootfs/etc/passwd  删除不相关的信息
+
+
+
+  进入开发板设置用户的密码：
+    passwd  root  
+	
+      
+   

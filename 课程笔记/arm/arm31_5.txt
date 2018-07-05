@@ -1,0 +1,581 @@
+﻿
+
+主存储器:
+		rom :出厂固化不可更改,一般放引导代码
+		
+		SRAM: 容量较小,带电数据即不丢失,不需要初始化;用于低性能单片机,中高性能处理器的初始化代码执行
+		SDRAM / DDRRAM: 成本低, 数据易失,需要刷新电路维持数据,所以需要初始化才能使用
+		
+		
+外部存储器:
+	磁介质:
+		硬盘,廉价 稳定,怕震荡
+		
+	光:
+		cd / dvd
+	
+	电:
+		eeprom:
+		
+		flash: 写入寿命有限,存储数据时间寿命有限 一般10年左右
+			nand: 块设备,只能按块读取数据不能按字节随机访问
+			nor:  可以随机访问,可以代替内存,不能放变量
+			
+arm处理器数据类型:(对于cpu本身 不区分有误符号)
+	
+	byte: 8bit
+	halfword: 16bit
+	word: 32bit
+	
+cortex-a:
+	double word:64it
+	
+arm指令集:
+	ARM:  32bit 
+	thumb:16bit
+cortex-a:
+	thumb-2: arm + thumb   32bit + 16bit
+	
+	java:8bit
+	
+	thumb-ee: thumb-2 java   >> art
+	
+7种工作模式:
+	
+	user 	:唯一的非特权模式,用于运行正常功能代码
+	system  :与user共享资源的 特权模式
+	
+	FIQ:  快速外部中断模式
+	IRQ:  普通中断模式
+	
+	svc: 处理器初始化状态,swi指令异常
+	
+	abort:	内存错误{数据异常\取址异常}
+	undef:  读取的机器码 错误;未定义指令异常
+	
+	
+cortex-a:
+	mo ...
+	
+	
+	PC(R15): 程序计数器
+	lr(r14): 链接寄存器,(保存返回地址)
+	sp(r13): 栈顶指针
+	
+	cpsr:程序状态寄存器 nzcv  jt  IF MODE
+	SPSR:程序状态备份寄存器,在异常切换的时候自动备份cpsr
+
+main()
+{
+	printf();
+	....
+}	
+	
+	
+分支指令:
+	b:    b fun   >> goto  fun >> pc = &fun;
+	bl:   bl fun   >> fun();   >> lr = pc; pc = &fun;
+	
+	
+	
+	
+arm流水线:
+
+最佳流水线:
+-1:
+	f: add
+	d:
+	e:
+0:
+	f:sub
+	d:add
+	e:	
+1:
+	f:orr
+	d:sub
+	e:add	
+2:
+	f:and
+	d:orr
+	e:sub	
+	
+LDR:
+
+-1:
+	F:ADD
+	D:
+	E:
+0:
+	F:SUB
+	D:ADD
+	E:
+1:
+	F:LDR
+	D:SUB
+	E:ADD	
+2:
+	F:AND
+	D:LDR
+	E:SUB
+3:
+	F:ORR
+	D:AND
+	E:LDR r0,[r1]  //准备资源	
+4:
+	F:ORR  wait
+	D:AND  wait
+	E:M // 访问内存:将内存数据读取到cpu
+5:
+	F:ORR
+	D:AND
+	E:W // 写回: 将数据写入到 目的寄存器
+6:   //ldr 执行完成,流水线恢复正常
+	F:eor
+	D:ORR
+	E:AND
+	
+	......
+	
+
+BL分支流水线:
+
+-1:	PC = 0X8000
+	F:BL 0X8FEC
+	D:
+	E:
+
+0:	PC = 0X8004    pc_old = 0x8000 //上一个周期的pc值
+	F:SUB
+	D:BL 0X8FEC
+	E:
+
+1:	PC = 0X8008 pc_old = 0x8004
+	F:ORR
+	D:SUB
+	E:BL 0X8FEC  =>> PC = 0X8FEC 
+	
+2:	PC = 0X8FEC pc_old = 0x8008
+	F: and
+	D:	//发现地址跳转,丢弃数据
+	E: L:链接lr = pc_old == 0x8008   //返回地址跑偏4字节
+									//保存上一个周期的地址
+3:	PC = 0X8Ff0 pc_old = 0x8fec
+	F:orr 
+	D:and	
+	E: A:调整  lr = lr - 4 == 0x8004 //硬件自动纠正4字节
+	
+4:	PC = 0X8Ff4 pc_old = 0x8ff0
+	F:eor 
+	D:orr	
+	E:and
+
+......
+
+mov pc,lr
+
+
+IRQ 流水线:
+
+-1:
+	F:ADD
+	D:
+	E:
+0:
+	F:SUB
+	D:ADD
+	E:
+1: PC = 0X8008   irq产生
+	F:MOV
+	D:DI    //中断拦截 解码单元
+	E:ADD	//中断不会打断正在执行的指令
+2: PC = 0X800C   
+	F:*(0x800c)	
+	D:   产生中断,丢弃数据WAIT
+	E:EI spsr = cpsr ;cpsr[I = 1][T = 0][MODE = 0B10010]; PC = 0X18	
+
+	
+3: PC = 0X18  pc_old = 0x800c	
+	F:b 0xaf00
+	D:  // 发生跳转,丢弃数据
+	E:L lr = pc_old = 0x800c // 地址跑偏8字节
+	
+4: PC = 0X1c  pc_old = 0x18	
+	F:*(0x1c)
+	D:b 0xaf00
+	E:A lr = lr - 4 == 0x8008 // 返回地址跑偏4字节,需要手动纠正 	
+	
+5: PC = 0X20  pc_old = 0x1c	
+	F:*(0x20)
+	D:*(0X1C)
+	E:b 0xaf00  PC = 0XAF00
+	
+6:PC = 0XAF00
+	F:stmfd
+	D:
+	E:
+7:PC = 0XAF04
+	F:mov 
+	D:stmfd
+	E:
+7:PC = 0XAF08
+	F: ldr
+	D:mov
+	E:stmfd
+	
+.....	
+sub lr,lr,#4	//返回前 必须将lr 减4
+movs pc,lr	
+	
+	
+subs pc,lr,#4	
+	
+	
+	
+	1.中断不会打断正在执行的指令
+****2.返回地址 需要手动纠正
+	3.中断产生到执行 至少需要7个周期
+
+
+	
+	
+条件分支码:
+
+	eq
+	ne
+	gt
+	lt
+	ge
+	le
+	
+	hi
+	ls
+	
+分支指令:  n{24bit  ±8m} m = n * 4 = ±32m
+	
+	b fun  :: pc = pc + (n * 4)  ==> pc = pc + m; ==> pc = fun
+	bl        lr = pc ;pc = pc + n * 4;
+	
+	
+	setenv bootcmd
+	save
+	
+	
+	
+
+
+
+
+立即数： A ROR (M * 2)  {A:8BIT   M:4bit}
+
+	MOV R6,#0X1E800
+	MOV R4,#0X00001200
+	mov r0,#0xf000000f
+
+	1. 如果一个数 循环去掉最大一组连续零，剩余位数如果小于8为，则是立即数
+	2. 如果一个数 循环去掉最大一组连续零，剩余位数如果大于8为，则是不是立即数
+	3. 如果一个数 循环去掉最大一组连续零，剩余位数如果等于8为
+		3.1 末位1 在奇数位上，则不是立即数
+		3.2 末位1 在偶数位上，则是立即数
+
+	4.如果一个数取反后是立即数，则称为有效数，有效数只能用于 mov mvn
+
+	
+	ldr Rn,=0xXXXX  寄存器赋值指令，如果数据是立即数 则替换为mov Rn,#0xXXXX
+					如果数据是立即数 则在内存临近位置保存这个数，并通过ldr 单寄存器 赋值指令加载
+					
+					LDR Rn,[0x40008100]
+					0x40008100 : 0xXXXX
+
+	ldr r0,a   @ R0 = *a	单寄存器加载指令
+
+	ldr r9,=a  @ r9 = a	寄存器赋值伪指令 将a这个标号只给 R9
+
+	ldr r1,=0x12345678
+	ldr r2,=0x120000
+	ldr r5,=1234
+
+
+
+
+
+swp
+swi
+
+
+八种寻址方式：
+
+立即数寻址：有一个数据是通过立即数形式获得
+	mov r0,#250
+	add r0,r1,#123
+	
+寄存器寻址：所以数据读写都在寄存器内直接执行
+	mov r0,r1
+	add r0,r1,r2
+
+寄存器移位寻址：有一个数据是通过移位运算获得
+	mov r0,r1,lsl #4
+	add r0,r1,r2,lsl #5
+
+寄存器间接寻址：把一个寄存器的只当做总线地址，来读写外部数据值
+	ldr r0,[r1]     r0 = *r1
+	str r0,[r1]		*r1 = r0
+	
+	ldr		str
+	ldrh	strh
+	ldrb	strb 
+	ldrsh  带符号位扩展装载两个字节
+	ldrsb
+
+基址变址寻址：把一个寄存器的只当做内存块基地址，来进行偏移寻址 *（p + n）
+					假设 int i,*p;
+	前索引：ldr r0,[r1,#4]    r0 = *(r1 + 4)  		 i = *(p + 1)
+	后索引：ldr r0,[r1],#4	  r0 = *r1;r1 = r1 + 4	 i = *(p ++)
+  自动索引：ldr r0,[r1,#4]!	  r0 = *(r1 += 4)		 i = *(++ p) 
+
+多寄存器寻址：一次存放或读取多个寄存器的值
+	ldm	stm
+	ldm r0,{r1-r5,r7}     r0 = &data[]
+						  r1 = data[0] r2 = data[1] r3 .. r7 = data[5]
+						  r1 = *(r0 + 0)   r2 = *(r0 + 4) 
+	stm r0,{r1-r5}       data[0] = r1;data[1] = r2 .....
+	
+	
+	ldmxx r0!,{r1-r5,r7}   !:地址将自动更新
+	
+	i:增		a:后
+	d:减		b:先     默认后缀ia 
+	
+	ia：后增
+	db：先减
+	
+	注意：
+	拷贝数据的顺序与增减无关，永远是 低地址对应低编号寄存器
+	寄存器列表 只能是从小到大
+	
+堆栈寻址：专门用于 栈的多寄存器寻址	
+	
+	f：满		d：减	
+	e: 空		a: 增   默认后缀 fd 默认使用满减栈
+	
+	
+	push：stmfd sp!,{r0-r12}
+	pop : ldmfd sp!,{r0-r12}
+
+	
+相对寻址：相对于当前pc的跳转
+	b
+	bl
+	
+	在thumb 中： 跳转范围 +154 ~ -256
+	
+	b fun   pc = pc + n * 2  n{8bit}
+	
+	ldr pc,=fun 
+	
+	bx Rn
+	blx Rn 
+
+	ldr r0,=fun   可以跳转任意范围
+	blx r0
+	
+	取址单元 默认pc[bit0] = 0;
+	如果 PC[0] = 1;则跳转后切换到thumb指令
+	如果 PC[0] = 0;则跳转后切换到arm指令
+
+	
+adr伪指令：	
+	ldr Rn,=0xXXXX  寄存器赋值指令，如果数据是立即数 则替换为mov Rn,#0xXXXX
+					如果数据是立即数 则在内存临近位置保存这个数，并通过ldr 单寄存器 赋值指令加载
+					
+					LDR Rn,[0x40008100]
+					0x40008100 : 0xXXXX
+
+	ldr r0,a   @ R0 = *a	单寄存器加载指令
+
+	ldr r9,=a  @ r9 = a	寄存器赋值伪指令 将a这个标号只给 R9
+
+	ldr r1,=0x12345678
+	ldr r2,=0x120000
+	ldr r5,=1234
+
+
+									 sub r0,pc,#n
+		adr  r0,fun   r0 = &fun  ==> add r0,pc,#n {0bxxxx xxxx 00}
+					adr寻址范围 为 ±1020 字节
+							    
+		adrl r0,fun   r0 = &fun    			0bxxxx xxxx xxxx xxxx 00
+					会被转换为 两条连续加法或减法
+					装载范围为 ±256k
+					
+
+arm处理器架构：
+1.数据不区分有无符号，所有数据都是二进制的
+
+2.指令集{人和处理器之间约定的暗号集合}
+
+3.汇编注记符号  ==》 被汇编器逐行翻译成机器码
+
+4.r0-r15 cpsr spsr  sp lr pc
+
+5.7种工作模式
+
+6.异常处理流程 及异常向量表
+
+7.指令：
+	mov 
+	bic  
+	cmp tst
+	b
+	bl fun   ==> fun();
+	bx
+	
+	ge gt lt le
+	
+	ldr str
+	ldr r0,[r1,r3,lsl #2]!
+	
+	push:stmfd sp!,{}
+	pop: ldmfd
+	
+	mov r0,r1,lsl #2    i = a << 2;   n << 3;
+														
+	adr r0,loop   add r0,pc,#n =>> pc + n == loop  0b1111111100
+	adrl r0,loop  0x1234  == 0x1200 + 0x34   add r0 = pc + 0x1200;r0 = r0 + 0x34
+				  0xXXXX << 2 2^18 == 2^20 / 4
+	ldr r0,[r2]
+	ldr r1,=loop
+	ldr r2,loop  ==> ldr r2,[pc,#n]
+	
+	.word .text .bss .data 
+	.global
+	
+arm atpcs 标准：
+	传参：
+		当参数数量不多于4个 体积不大于 寄存器大小32bit 则通过 r0-r3传递
+		否则，通过栈顶传递
+		
+	返回值：
+		如果参数体积不大于32bit 则通过r0传递
+		如果参数体积不大于64bit 则通过r0 r1 传递
+		否则通过占顶传
+
+
+
+当异常产生时, ARM core:
+
+1.拷贝 CPSR 到 SPSR_<mode>
+2.设置适当的 CPSR 位： 
+	1)改变处理器状态进入 ARM 状态  
+	2)改变处理器模式进入相应的异常模式
+	3)设置中断禁止位禁止相应中断 (如果需要)
+4.保存返回地址到 LR_<mode>
+5.设置 PC 为相应的异常向量
+
+返回时, 异常处理需要:
+从 SPSR_<mode>恢复CPSR
+从LR_<mode>恢复PC 
+Note:这些操作只能在 ARM 态执行.
+	
+	
+	
+从SWI 和 Undef异常返回
+		MOVS pc,lr
+
+从FIQ, IRQ 和 预取异常(Prefect Abort)返回
+		SUBS pc,lr,#4
+						SUB LR,LR,#4
+						MOVS PC,LR
+		
+从数据异常( Data Abort)返回
+		SUBS pc,lr,#8	
+
+如果 LR之前被压栈的话使用LDM  “ ^” 
+		STMFD SP!,{R0-R12,LR}
+		.....
+		LDMFD sp!,{R0-R12,pc}^
+	
+异常优先级：	
+Reset
+			Data Abort
+FIQ
+IRQ
+			Prefetch Abort
+SWI
+			Undefined instruction
+			
+	ldr pc,a 			
+a:
+	.word fun 
+
+
+
+.weak do_irq 
+	bl	do_irq	
+	
+weak：
+	如果这个符号没有定义，则 响应跳转质量 被替换为 nop
+	如果本文件定义该符号，同时 工程中其他文件也有该符号定义，则调用外部的符号
+	
+	
+	
+	
+SOC外部中断：
+	
+	1.配置中断源
+		1.选择中断功能
+		2.选择中断触发条件
+		3.使能中断源
+	
+	2.找中断号{在 中断控制器说明里查找 中断名称}
+		
+	
+	3.配置中断控制器
+		1.使能中断控制器
+		2.设置对应中断号使能
+		3.设置中断优先级
+		4.设置中断安全
+		5.选择中断类型 irq fiq
+		6.选择cpu（多核架构下） 
+	
+	4.编写中断代码
+		
+		1.读取中断号
+		
+		2.执行中断任务
+
+		3.清中断源信号
+		
+		4.清除中断控制器状态
+
+					
+					
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+	
+	
+	
+

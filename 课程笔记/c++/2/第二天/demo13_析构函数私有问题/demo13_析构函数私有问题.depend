@@ -1,0 +1,5 @@
+# depslib dependency file v1.0
+1527668994 source:d:\c++例程\第二天\demo13_析构函数私有问题\main.cpp
+	<iostream>
+	<cstring>
+

@@ -1,0 +1,360 @@
+struct device_node *of_find_node_by_path("/demo");//通过路径来查找设备树中的某个节点
+struct device_node 就是代表了一个设备树节点
+
+struct device_node *of_find_node_by_name("demo");
+
+对于某些驱动来说，按照之前的写法并没有真正的实现通用性。
+readl(gpx2con) & ~(0xf << 28) | 1 << 28; 换一个平台可能就不是28了，所以换平台后还要修改。
+
+gpio接口:
+int of_get_named_gpio(); 获取了一个整数值，这个整数值代表了当前平台某个引脚的编号
+
+int gpio_request();//将引脚编号注册到内核中
+返回为非0出错
+
+当我们注册的引脚编号已经在内核中存在了，一定会报错。
+
+gpio_direction_output(引脚编号,寄存器中的默认值);  设置输出模式
+gpio_direction_input(); 设置输入模式
+
+gpio_set_value();给寄存器设置具体值
+gpio_get_value();
+
+内核中的同步和互斥:
+现在使用的cpu都是多核的
+现在使用的os都是可抢占的
+
+系统在运行时，是运行在多核cpu上，微观上可以同时执行多个任务，如果这些同时执行的多个任务使用了相同的资源，此时可能出现竞争。
+
+同步互斥为了避免竞争的。
+1、中断屏蔽
+2、原子操作
+3、互斥锁
+4、自旋锁
+5、信号量
+
+互斥锁和自旋锁的区别:他们都可以实现互斥，但是互斥锁在使用过程中可能出现阻塞，自旋锁使用过程中不会出现阻塞。
+阻塞:站在cpu的角度，如果一个任务阻塞，则cpu会先保存这个任务到一个空间，然后将任务从cpu中踢出，此时cpu可以给其他任务分配时间片。
+
+自旋锁为什么没有阻塞，但是又能实现互斥？如果条件不成立，内部执行循环操作。
+理解为while(flag);
+
+注意:互斥锁中可以出现延时函数，自旋锁中不能出现延时函数
+	 互斥锁不能使用在中断处理函数中
+——————————————————————————————————————————————————————————————————————————————————————
+驱动中的IO模型:
+阻塞
+多路复用
+异步通知
+
+
+阻塞:站在cpu的角度，如果一个任务阻塞，则cpu会先保存(等待队列中)这个任务到一个空间，然后将任务从cpu中(从运行队列中删除)踢出，此时cpu可以给其他任务分配时间片。
+
+阻塞可以分成读阻塞和写阻塞。
+读:数据从内核流向用户
+写:数据从用户空间流向内核空间
+
+读阻塞:如果没有数据产生，会产生读阻塞
+	   如果有数据产生，在内核中数据没有传递给用户，此时也是读阻塞
+写阻塞:几乎看不到，当空间不足时才会出现写阻塞。
+
+阻塞由内核实现——由内核中的等待队列实现(本质是双向循环链表)
+12 typedef struct __wait_queue wait_queue_t;
+	 
+ 16 struct __wait_queue { 等待队列项
+ 19     void            *private;//存放私有数据，其实是pcb信息
+ 20     wait_queue_func_t   func;//额外提供的一个函数接口
+ 21     struct list_head    task_list;//用来构建双向链表
+ 22 };	
+
+
+ 35 struct __wait_queue_head { 等待队列头
+ 36     spinlock_t      lock;//自旋锁
+ 37     struct list_head    task_list;//用来构建双向链表
+ 38 };                                                                          
+ 39 typedef struct __wait_queue_head wait_queue_head_t;
+
+185 struct list_head {                                                          
+186     struct list_head *next, *prev;
+187 };
+
+等待队列的相关接口:
+init_waitqueue_head(wait_queue_head_t *q);初始化等待队列头
+
+实现阻塞:
+wait_event(wait_queue_head_t,变量或者变量表达式);
+阻塞不可以被信号打断(可以被不是信号的其他东西打断)
+注意:第二个参数千万不要传递常量
+
+wait_event_interruptible();可以被信号打断
+sleep_on();
+interruptible_sleep_on();
+
+进程状态:
+R
+T
+Z
+S 等待可中断睡眠态
+D 等待不可中断睡眠态
+
+实现唤醒:
+wake_up(wait_queue_head_t *);
+wake_up_interruptible();
+
+注意:wake_up和wait_event配合使用
+	 wake_up_interruptible和wait_event_interruptible配合使用
+
+讲进程时
+pid = fork();
+
+if(pid == 0)
+{
+	
+}
+
+else if(pid > 0)
+{
+	sleep(10);//sleep函数告诉os，父进程需要阻塞,在底层调用了等待队列
+}
+以上代码正常会先执行哪个进程？随机执行，同优先级的进程，操作系统随机分配资源。
+如果我们想让子进程先执行，需要在父进程中加延时。
+
+等待队列的源码分析:
+vi -t init_waitqueue_head
+ 70 #define init_waitqueue_head(q)              \
+ 71     do {                        \
+ 72         static struct lock_class_key __key; \
+ 73                             \
+ 74         __init_waitqueue_head((q), #q, &__key); \
+ 75     } while (0)		||
+						\/
+ 13 void __init_waitqueue_head(wait_queue_head_t *q, const char *name, struct lo
+ 14 {
+ 15     spin_lock_init(&q->lock);//初始化自旋锁
+ 16     lockdep_set_class_and_name(&q->lock, key, name);
+ 17     INIT_LIST_HEAD(&q->task_list);//构建了一个空的双向循环链表
+ 18 }
+ 如何使用？一般在加载函数中或者是probe函数中
+ wait_queue_head_t q;
+ init_waitqueue_head(&q);
+ 
+
+
+vi -t wait_event
+244 #define wait_event(wq, condition) 使用这个函数的目的是实现阻塞
+245 do {    
+246     if (condition) 如果条件成立，则wait_event函数执行结束了，此时不会有阻塞出现了
+247         break;       
+248     __wait_event(wq, condition); 
+249 } while (0)
+如果想要实现阻塞，最初condition必须是不成立的
+
+进入__wait_event:
+228 #define __wait_event(wq, condition)                 \                       
+229     (void)___wait_event(wq, condition, TASK_UNINTERRUPTIBLE, 0, 0,  \
+230                 schedule())
+				||
+				\/
+200     INIT_LIST_HEAD(&__wait.task_list);构建了等待队列项的空的双向循环链表
+201     if (exclusive)                          \
+202         __wait.flags = WQ_FLAG_EXCLUSIVE;           \
+203     else                                \
+204         __wait.flags = 0; 这个条件成立
+205                                     \
+206     for (;;) {                          \
+207         long __int = prepare_to_wait_event(&wq, &__wait, state);\
+208                                     \                                       
+209         if (condition)                      \
+210             break;                      \
+222         cmd; 执行schedule()函数，此时这个函数可以知道进程的状态
+223     }                               \
+224     finish_wait(&wq, &__wait);                  \
+225 __out:  __ret;                              \
+226 })
+
+先进入 prepare_to_wait_event函数:
+198 long prepare_to_wait_event(wait_queue_head_t *q, wait_queue_t *wait, int sta
+199 {
+200     unsigned long flags;
+201 
+202     if (signal_pending_state(state, current)) //current指向了当前进程
+203         return -ERESTARTSYS;
+204 
+205     wait->private = current; //将当前进程的信息存放到等待队列项中
+206     wait->func = autoremove_wake_function;
+207 
+208     spin_lock_irqsave(&q->lock, flags);//自旋锁上锁
+209     if (list_empty(&wait->task_list)) { //最初是成立的——等待队列项链表为空
+210         if (wait->flags & WQ_FLAG_EXCLUSIVE) // 0 & WQ_FLAG_EXCLUSIVE肯定是假
+211             __add_wait_queue_tail(q, wait);
+212         else
+213             __add_wait_queue(q, wait);//执行的代码，将等待队列项添加到等待队列中
+214     }
+215     set_current_state(state);
+		//将进程的原有状态改为TASK_UNINTERRUPTIBLE，这个状态在这里是没意义的。
+216     spin_unlock_irqrestore(&q->lock, flags);
+217 
+218     return 0;
+219 }
+
+执行完 prepare_to_wait_event函数之后，继续执行schedule()——维护了一个运行队列:
+此时schedule函数知道进程的状态，函数会将TASK_UNINTERRUPTIBLE或者TASK_INTERRUPTIBLE对应的进程从运行队列中删除。
+
+运行队列:保存所有的已经运行的进程或者是准备运行的进程信息，cpu会给这里的进程分配时间片。
+进程已经可以阻塞了
+————————————————————————————————————————————————————————————————————————————————————————
+要根据自己的需求，在合适的情况下让进程唤醒。
+
+事先一定会使用到wake_up();
+vi -t wake_up		
+#define wake_up(x)          __wake_up(x, TASK_NORMAL, 1, NULL)
+								||
+								\/
+		94     __wake_up_common(q, mode, nr_exclusive, 0, key);
+						||
+						\/
+	 69     list_for_each_entry_safe(curr, next, &q->task_list, task_list) {
+	 70         unsigned flags = curr->flags;
+	 71 
+				//就是在执行autoremove_wake_function
+	 72         if (curr->func(curr, mode, wake_flags, key) &&
+	 73                 (flags & WQ_FLAG_EXCLUSIVE) && !--nr_exclusive)
+	 74             break;
+	 75     }
+	
+	curr->func其实就是在调用 prepare_to_wait_event函数中的autoremove_wake_function
+	autoremove_wake_function：
+	292     int ret = default_wake_function(wait, mode, sync, key);
+							||
+							\/
+		2851     return try_to_wake_up(curr->private, mode, wake_flags);
+							||
+							\/
+			1617     p->state = TASK_WAKING;将state的内容改为TASK_WAKING
+	
+	set_current_state(state);	将进程状态改为TASK_WAKING	
+	再一次执行schedule函数，进程调度函数看到状态为TASK_WAKING，该进程需要唤醒，所以调度器会将进程信息拿到运行队列中。	
+
+唤醒的第一个条件，让condition为真(还需要有wake_up函数和它配合使用)。
+继续执行:
+224     finish_wait(&wq, &__wait);//将进程状态改为TASK_RUNNING,同时删除等待队列项
+
+———————————————————————————————————————————————————————————————————————————————————————— 
+按键驱动——轮询、中断
+
+操作系统执行时，如果有中断产生，会跳转到指定的异常位置，每个异常都是用一个标号来代表的一个入口地址，进入入口地址后，会有相应的硬件相关的寄存器处理do_irq(),当os执行c代码时做了哪些工作？
+了解的是内核中的中断子系统
+
+在os中维护了一些结构体:
+ 40 struct irq_desc {
+ 41     struct irq_data     irq_data;
+ 47     struct irqaction    *action;
+ };
+
+146 struct irq_data {
+147     u32         mask;//一种掩码，代表中断的类型或者触发方式
+148     unsigned int        irq;//虚拟中断号，中断描述符
+149     unsigned long       hwirq;//物理的中断号
+152     struct irq_chip     *chip;//指向了正在使用的一个中断控制器
+158 };
+
+
+105 struct irqaction {
+106     irq_handler_t       handler;//用来存放中断处理函数的入口地址
+112     unsigned int        irq;//虚拟中断号
+113     unsigned int        flags;//中断触发方式或者中断类型
+116     const char      *name;//中断名称，出现在/proc/interrupts
+118 } ____cacheline_internodealigned_in_smp;
+
+如何注册中断？
+int request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,const char *name, void *dev)
+参数1:获取到的虚拟中断号
+参数2:中断处理函数
+		irqreturn_t (*)(int, void *);
+		参数1:虚拟中断号
+		参数2:只有共享中断才会使用
+		返回值:
+		 10 enum irqreturn {
+		 11     IRQ_NONE        = (0 << 0),
+		 12     IRQ_HANDLED     = (1 << 0),正是当前设备在操作中断，则返回它
+		 13     IRQ_WAKE_THREAD     = (1 << 1),
+		 14 };
+		 15 
+		 16 typedef enum irqreturn irqreturn_t;
+		中断处理函数的返回值有3种情况IRQ_NONE，IRQ_HANDLED,IRQ_WAKE_THREAD,不能同时出现
+
+参数3:通常代表的是中断触发方式，也可以代表中断类型
+		中断触发方式:
+		 30 #define IRQF_TRIGGER_RISING 0x00000001  上升沿触发
+		 31 #define IRQF_TRIGGER_FALLING    0x00000002    下降沿触发
+		 32 #define IRQF_TRIGGER_HIGH   0x00000004 高电平触发
+		 33 #define IRQF_TRIGGER_LOW    0x00000008 低电平触发
+参数4:代表了中断名称，出现在/proc/interrupts
+参数5:给中断处理函数的参数2传参的，只有共享中断时使用
+
+实现按键驱动前，必须先掌握如何添加设备树？
+底板UART_RING --> 核心板 XEINT9/KP_COL1/ALV_DBG5/GPX1_1
+查看芯片手册第九章发现EINT[9]对应的物理中断号为25(共享中断)
+
+GPX1_1 可以知道使用的中断控制器叫做gpx1(在某个设备树文件中)
+
+vi arch/arm/boot/dts/exynos4x12-pinctl.dtsi
+571         gpx1: gpx1 {
+572             gpio-controller;
+573             #gpio-cells = <2>;
+574 
+575             interrupt-controller; //代表了中断控制器               
+576             interrupt-parent = <&gic>;//当前中断控制器的中断父节点是gic
+577             interrupts = <0 24 0>, <0 25 0>, <0 26 0>, <0 27 0>,
+								0          1         2         3
+578                      <0 28 0>, <0 29 0>, <0 30 0>, <0 31 0>;
+							4		  5 		6         7
+579             #interrupt-cells = <2>;当前节点的中断子节点中interrupts属性有2个值
+580         };
+
+UART_RING引脚产生中断信号后会将中断信息交给gpx1中断控制器处理，进而交给gic处理，最后给cpu
+
+interrupts属性代表的是中断源
+interrupts属性的语法:
+1)interrupts = <val1 val2 val3>;
+	vi Documentation/devicetree/bindings/arm/gic.txt
+	val1如果是0代表共享中断，如果是1代表私有中断
+	val2就是物理中断号(现在使用的是共享中断号)
+	val3代表了中断触发方式:1代表上升沿触发  2下降沿触发
+						   4高电平触发		8低电平触发
+						   0代表了当前未指定触发方式
+2)interrupts = <val1 val2>;
+	val1代表的是一个索引值，这个索引值会索引中断号
+	val2代表的是中断触发方式
+3)interrupts = <val1>;
+	val1代表的是一个索引值，这个索引值会索引中断号
+
+
+自己的设备树节点:
+
+/{
+
+	key{
+		compatible = "fs4412,key";
+		interrupt-parent = <&gpx1>;//当前节点的中断父节点是gpx1
+		interrupts = <1 2>,<2 2>;
+	};
+};
+
+struct platform_device
+{
+	struct resource *res;
+};
+
+struct resource
+{
+	start = 起始中断号
+	end = 结束中断号
+	flags = IORESOURCE_IRQ
+}
+
+platform_get_resource(pdev,IORESOURCE_IRQ,0);
+获取中断资源函数
+参数1：platform_device 结构体
+参数2：资源属性 ==》IORESOURCE_MEM,IORESOURCE_IRQ,IORESOURCE_LCD
+参数3：索引值

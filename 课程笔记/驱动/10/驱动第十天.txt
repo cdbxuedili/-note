@@ -1,0 +1,255 @@
+如何封装消息结构体
+struct i2c_msg 
+{
+	从机地址
+	读写位
+	数据的字节数
+	读或者写的空间地址
+};
+
+外部设备使用控制类寄存器以及数据类寄存器，需求无非就是将数据写入寄存器或者从寄存器中读值。
+
+查看外设手册分析出时序。
+
+写时序:
+起始信号 + 从机地址 0 + 应答 + 8位寄存器地址 + 应答位 + 8位寄存器数据 + 应答 + 结束信号
+
+void write_data(unsigned char reg,unsigned char val)
+{
+	unsigned char wbuf[] = {寄存器地址,寄存器数据};
+	struct i2c_msg msg[大小由起始信号个数决定] = {
+		{
+			.addr = glo_client->addr,
+			.flags = 0,
+			.len = 2,
+			.buf = wbuf,
+		}，
+	};
+	i2c_transfer(glo_client->adapter,msg,ARRAY_SIZE(msg));
+}
+
+读时序:
+查看手册
+起始信号 + 从机地址 0 + 应答 + 8位寄存器地址 + 应答 + 起始信号 + 从机地址 1 + 应答 + 
+从寄存器中读出的8位数据 + 非应答 + 结束信号
+
+unsigned char read_data(unsigned char reg)
+{
+	char wbuf[1] = {reg};
+	char rbuf[1];
+	struct i2c_msg msg[2] = {
+		{
+			.addr = glo_client->addr,
+			.flags = 0,
+			.len = 1,
+			.buf = wbuf,
+		},
+		{
+			.addr = glo_client->addr,
+			.flags = 1,
+			.len = 1,
+			.buf  = rbuf,
+		},
+	};
+	
+	return rbuf[0];
+}
+
+输入子系统:
+事件处理层:内核实现  drivers/input/evdev.c
+核心层:内核实现 drivers/input/input.c
+设备驱动层:自己实现
+
+input/input.c加载函数中实现了三个功能:在/sys/class下创建input类
+									  在/proc/bus/下创建input文件夹
+									  静态注册了设备号，并且指定主设备号为13
+									  
+到内核中查看Documentation/devices.txt 
+13 char 字符设备主设备号为13时，次设备号有哪些用法
+		设备文件出现在/dev/input/event0
+		
+使用输入子系统时一定会有几步重要的工作:
+1、对指定结构体申请空间 input_allocate_device();
+2、配置信息
+3、初始化硬件
+4、注册指定的结构体  input_register_device();
+注册函数最终实现的结果:创建设备节点，搭建字符设备框架，提供了和应用层交互的接口。
+
+
+void input_event(struct input_dev *dev,unsigned int type, unsigned int code, int value)
+参数1:input_allocate_device的返回值
+参数2:事件类型
+		 175 #define EV_SYN          0x00
+		 176 #define EV_KEY          0x01
+		 177 #define EV_REL          0x02
+		 178 #define EV_ABS          0x03
+		 179 #define EV_MSC          0x04
+		 180 #define EV_SW           0x05
+		 181 #define EV_LED          0x11
+		 182 #define EV_SND          0x12
+		 183 #define EV_REP          0x14
+		 184 #define EV_FF           0x15
+		 185 #define EV_PWR          0x16                                               
+		 186 #define EV_FF_STATUS        0x17
+		 187 #define EV_MAX          0x1f
+		 188 #define EV_CNT          (EV_MAX+1)
+参数3:某个事件下的具体事件值
+		如果事件类型为EV_KEY，则参数3可能是各种按键值
+		212 #define KEY_RESERVED        0
+		 213 #define KEY_ESC         1
+		 214 #define KEY_1           2
+		 215 #define KEY_2           3
+		 216 #define KEY_3           4
+		 217 #define KEY_4           5                                                  
+		 218 #define KEY_5           6
+		 219 #define KEY_6           7
+		 220 #define KEY_7           8
+		 221 #define KEY_8           9
+		 222 #define KEY_9           10
+		 223 #define KEY_0           11
+		 224 #define KEY_MINUS       12
+		 .................
+
+参数4:事件状态
+		如果是按键事件，则有三种状态0(抬起按键) 1(按下按键) 2(不关心抬起状态)
+
+
+421 void input_event(struct input_dev *dev,
+ 422          unsigned int type, unsigned int code, int value)
+ 423 {
+ 424     unsigned long flags;
+ 425 
+ 426     if (is_event_supported(type, dev->evbit, EV_MAX)) {                    
+ 427 
+ 428         spin_lock_irqsave(&dev->event_lock, flags);
+ 429         input_handle_event(dev, type, code, value);
+ 430         spin_unlock_irqrestore(&dev->event_lock, flags);
+ 431     }
+ 432 }
+ 
+ input_handle_event(dev, type, code, value):
+ 387         v->type = type;
+ 388         v->code = code;                                                    
+ 389         v->value = value;
+ 
+ 397         dev->vals[dev->num_vals++] = input_value_sync;
+ 398         input_pass_values(dev, dev->vals, dev->num_vals);
+			 //修改了类型值，按键值，状态值。
+ 399         dev->num_vals = 0;
+ 
+ input_pass_values(dev, dev->vals, dev->num_vals)内部:
+ 143         count = input_to_handler(handle, vals, count); 
+							||
+							\/
+			116     if (handler->events) 事件处理层中的一个接口
+			117         handler->events(handle, vals, count);
+							||
+							\/
+				进入事件处理层:
+				1204     .events     = evdev_events,
+										||
+										\/
+				212         evdev_pass_values(client, vals, count, time_mono, time_real);			||
+									  \/
+				177     spin_lock(&client->buffer_lock);
+				 178 
+				 179     for (v = vals; v != vals + count; v++) {
+				 180         event.type = v->type;//为应用层使用做准备
+				 181         event.code = v->code;
+				 182         event.value = v->value;
+				 183         __pass_event(client, &event);
+				 184         if (v->type == EV_SYN && v->code == SYN_REPORT)
+				 185             wakeup = true;
+				 186     }
+				 187 
+				 188     spin_unlock(&client->buffer_lock);
+				 189 
+				 190     if (wakeup)
+				 191         wake_up_interruptible(&evdev->wait);唤醒read函数中的阻塞
+——————————————————————————————————————————————————————————————————————————————
+vi -t input_sync
+414     input_event(dev, EV_SYN, SYN_REPORT, 0);
+			||
+			\/
+429         input_handle_event(dev, type, code, value);
+					||
+					\/
+	368     disposition = input_get_disposition(dev, type, code, value);
+								||
+								\/
+	 266     case EV_SYN:
+	 267         switch (code) {
+	 268         case SYN_CONFIG:
+	 269             disposition = INPUT_PASS_TO_ALL; 1 | 2 = 3
+	 270             break;
+				||
+				\/
+386         v = &dev->vals[dev->num_vals++];
+ 387         v->type = type;
+ 388         v->code = code;
+ 389         v->value = value;	
+ 
+ 397         dev->vals[dev->num_vals++] = input_value_sync;
+ 398         input_pass_values(dev, dev->vals, dev->num_vals);                  
+ 399         dev->num_vals = 0;
+				||
+				\/
+	143         count = input_to_handler(handle, vals, count); 
+							||
+							\/
+			117         handler->events(handle, vals, count);
+——————————————————————————————————————————————————————————————————————————————
+为什么要使用set_bit()?
+
+vi -t input_event
+							   EV_KEY
+426     if (is_event_supported(type, dev->evbit, EV_MAX)) 
+				||
+				\/					 EV_KEY  dev->evbit 	
+56     return code <= max && test_bit(code, bm);	
+			  EV_KEY <= EV_MAX为真
+			  1 <= 31进行比较
+			  
+		dev->evbit 是否有内容需要查看input_allocate_device();发现最初没有初始化。
+									
+									EV_KEY       dev->evbit
+	103 static inline int test_bit(int nr, const volatile unsigned long *addr)      
+	104 {
+	105     return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+	106 }
+	
+	#define BIT_WORD(nr)        ((nr) / BITS_PER_LONG)  《==》 1 / 32结果为0 
+	addr[BIT_WORD(nr) ==》addr[0]
+	nr & (BITS_PER_LONG-1) ==> EV_KEY & 31 ==> 1 & 11111 ==> 1
+	(addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1))) <==> addr[0] >> 1
+														  dev->evbit[0] >> 1
+	1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));<==> 1 & (dev->evbit[0] >> 1)
+	最终想让 1 & (dev->evbit[0] >> 1) 结果为真。
+	
+	如何才能为真？ 调用set_bit(EV_KEY,fs4412_idev->evbit);
+						||
+						\/
+										EV_KEY      fs4412_idev->evbit
+		 65 static inline void set_bit(int nr, volatile unsigned long *addr)
+		 66 {                                                                           
+		 67     unsigned long mask = BIT_MASK(nr);
+		 68     unsigned long *p = ((unsigned long *)addr) + BIT_WORD(nr);
+		 69     unsigned long flags;
+		 70 
+		 72     *p  |= mask;
+		 74 }		
+	
+		#define BIT_MASK(nr)        (1UL << ((nr) % BITS_PER_LONG))
+									1UL << (EV_KEY % 32) <==> 1 << 1 = 2
+		
+		#define BIT_WORD(nr)        ((nr) / BITS_PER_LONG)
+									EV_KEY / 32 = 0
+		unsigned long *p = ((unsigned long *)addr) + BIT_WORD(nr);
+		==> fs4412_idev->evbit + 0
+		p存放了evbit数组的首地址
+		*p = *p | mask
+			取出p指向空间内容 | 2   <==> fs4412_idev->evbit[0] | 2 ==> 结果为2
+			
+		1 & (dev->evbit[0] >> 1)
+		1 & (2 >> 1) 结果为真
+		

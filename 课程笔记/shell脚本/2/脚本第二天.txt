@@ -1,0 +1,387 @@
+shell脚本:shell命令的有序集合
+解释型语言，用命令行解释器来生成二进制文件
+
+常见的解释器:bash、sh、ksh、dash
+
+脚本文件的命名方式:名称.sh 
+
+如何执行脚本文件？
+1、修改脚本文件的权限为777
+	chmod 777 xxx.sh 
+	./xxx.sh 
+2、bash xxx.sh 
+
+3、source xxx.sh 
+4、. ./xxx.sh 
+
+语法:
+1、脚本的变量:都是字符串
+1）用户自定义变量
+	变量名=初始化的值    =的两边不能有空格
+	
+	a=100
+	string=hello
+	echo $string 
+	
+	string=hello    world 会报错
+	string="hello    world"
+	echo $string 结果是hello world 在当前情况下这种变量引用不合理
+	echo "$string"  结果是hello    world 
+	
+	如果是一个普通变量引用:echo $string <==> echo ${string}
+						   echo "$string" <==> echo "${string}"
+	
+	当一个变量构成了表达式时，必须要加{}
+	表达式基本规则: ${变量名分隔符规则}
+	
+	变量=`命令的结果`
+	
+2）位置变量
+	$0代表脚本文件本身
+	$1 - $9 ${10}
+	$# 代表了给脚本传递的参数的个数从$1开始算
+	$? 上一条命令执行的状态，0代表成功、1代表失败
+	$@和$* 可以替代$1 - $n
+	
+3）环境变量
+	HOME  代表了家目录的绝对路径
+	PATH=/bin:/sbin  存放了一堆路径，每个路径下都是shell命令，操作系统为什么能执行shell命令，因为操作系统会根据PATH所提供的路径，按照顺序依次到指定路径下寻找命令。
+	
+	如果你的linux系统突然发现命令执行不了了。可能是你把命令删除了，可能是PATH路径被覆盖掉
+	PATH=$PATH:命令所在的绝对路径   在PATH原有内容基础上新增内容
+	PATH=命令所在的绝对路径:$PATH 
+	PATH=命令的绝对路径   会清掉原有的内容
+	export PATH  将变量变成全局的
+	
+	另一种写法:
+	export PATH=$PATH:命令所在的绝对路径   在PATH原有内容基础上新增内容
+	export PATH=命令所在的绝对路径:$PATH 
+	export PATH=命令的绝对路径   会清掉原有的内容
+	
+	export ABC=$ABC:内容
+	
+表达式:
+	string=ABCDEFABCDEFABCD
+	${string//ABCD/xy} 将所有的ABCD替换成xy
+	${string/ABCD/xy} 替换第一个ABCD为xy
+	${string/#ABCD/xy} 替换ABCD为xy，这个ABCD必须保证是字符串的开头
+	${string/%ABCD/xy} 替换ABCD为xy，这个ABCD必须保证是字符串的结尾
+	
+	${string#ABCD} 删除ABCD，保证ABCD是开头
+	${stirng%ABCD} 删除ABCD，保证ABCD是尾部
+	
+read 变量      这个位置的变量是定义，作用是从终端读取字符串然后存放给变量
+如果读多个变量最好执行多个read。
+read var1 var2  不建议使用
+read var1 
+read var2 
+
+expr命令:对所谓的整数进行+ - \* / %
+变量=`expr $var1 \* $var2`
+
+test语句:本质都是检测字符串
+但是根据应用场景的不同，分类为:普通字符串、整数、文件名
+
+test $string = "hello"   判断string的内容和hello是否相等 
+						 =两边必须有空格，如果没有空格解释器会认为是赋值
+
+如何可以判断出是否相等？
+echo $? 
+
+test $string != "hello"
+test -z $string  判断string变量的内容长度是否为0
+test -n $string  判断string变量的内容长度是否不为0
+
+-eq -ne -le -lt -ge -gt   脚本语法
+==  !=   <=  <   >=  >    c的语法   
+
+[90,100)
+test $value -ge 90 -a $value -lt 100
+test $value -ge 90 && test $value -lt 100	
+	
+如果判断文件:
+read 变量名 
+test -f $变量名    判断是否为普通文件
+	 -d					     目录
+	 -r 					 读权限
+	 -w 					 	
+	 -x 
+	 -e 					 是否存在
+	 
+每条test语句都可以被[]
+test $string = "hello" <==> [ $string = "hello" ] 
+
+test -f $变量名   <==> [ -f $变量名 ]
+
+test $value -ge 90 -a $value -lt 100 <==> [ $value -ge 90 -a $value -lt 100 ]
+test $value -ge 90 && test $value -lt 100 <==> [ $value -ge 90 ] && [ $value -lt 100 ]
+
+控制语句:分支语句和循环语句
+分支语句:if语句和case语句
+有几个if就有几个then，有几个then最后就会出现几个fi
+if test语句1 
+then
+	语句块
+else if test语句2
+then 
+	语句块
+else 
+	语句块 
+fi 
+fi 
+
+case 变量引用 in
+	分支1)
+		语句块 
+		;;  相当于break
+	分支2)
+		语句块 
+		;;
+	hello | world) 变量的内容是hello或者是world都可以执行当前分支
+		语句块 
+		;;
+	*)
+		语句块 
+		;;
+esac
+
+循环语句:while循环和for循环
+while循环:
+while test语句 
+do
+	循环体
+done
+
+//相当于while(1)
+while :
+do
+	循环体 
+done 
+
+for 变量定义 in 变量引用(单词表)
+do
+	循环体
+done 
+循环的次数由单词表中单词的个数决定，每执行一次循环定义的变量内容就是单词表中的某个单词
+一定要注意:单词表在引用时，不能加""
+
+例子:
+需要从终端输入一个文件名。如果不是目录需要报错。
+如果是一个目录，将这个目录下的普通文件拷贝到~/file文件夹中
+				将这个目录下的子目录拷贝到~/dir文件夹中
+
+函数:
+c的函数:声明、定义、调用
+		形参和实参，以及传参。
+脚本函数:定义和调用
+		 没有形参和实参，所以不需要考虑传参
+
+如何定义函数？
+1、函数名()
+   {
+		函数体
+   }
+   
+2、function 函数名()
+   {
+		函数体
+   }
+   function是一个关键字，为了告诉解释器我是一个函数		
+
+如何调用函数？
+如果函数没有返回值:
+1、直接使用函数名
+2、变量=`函数名`
+
+如果函数有返回值:
+1、函数名
+   变量=$?    注意:变量接收的是实际值，不是状态值
+
+
+//函数可以传参，但是使用的是函数的位置变量
+1 #!/bin/bash 
+  2 
+  3 function fun()
+  4 {
+		value=100 //默认是全局变量
+		local value=100 //局部变量
+  5     echo $1  //函数的位置变量
+  6     echo $2                                                                 
+  7 }
+  8 
+  9 fun 3 4
+ 10 
+ 11 echo $1 //脚本的位置变量
+ 12 echo $2   
+	echo $value 
+——————————————————————————————————————————————————————————————————————————————————————
+Makefile——非常非常非常重要
+如何编译程序？调用gcc编译器，但是如果我给你10000个文件，让你给我编译出300个可执行程序。
+如果你能保证你写的代码永远不需要任何调试，那么你不需要使用Makefile。
+
+如果使用了Makefile，写Makefile时比较麻烦，但是写好后调试的时候只需要执行make命令。
+使用Makefile来对源码进行编译的话一定会用到make，make叫做工程管理器，这种工程管理器编译时有一个非常关键的好处，可以提高程序的编译效率。make工程管理器，会去查询每个需要编译的文件的时间戳，如果时间戳没有改变，则当前源文件可以不参与编译。
+
+如果想要学好Makefile，从以下5个方面入手:
+1、显示规则
+2、隐式规则
+3、变量使用
+4、条件语句
+5、函数
+
+makefile的命名方式:
+GNUmakefile  makefile  Makefile 这三个文件通常不会同时出现在一个目录下。如果出现了只能调用其中一个。以上三个文件如果只是执行编译功能的话，则直接调用make命令
+
+如果同一个目录下我们想执行多个makefile文件，我们可以使用带后缀的文件来表示makefile
+xxx.mk xxx.AIX  xxx.Linux  xxx.modpost 
+
+make -f xxx.后缀
+
+一、显示规则
+编译的过程:
+1、预处理:gcc -E 1.c -o 1.i
+2、编译:gcc -S 1.i -o 1.s 
+3、汇编:gcc -c 1.s -o 1.o
+4、链接:gcc 1.o -o 可执行文件名
+
+如果我想生成.o文件:gcc -c 1.c -o 1.o 
+
+目标文件:依赖文件
+	生成目标文件的命令
+
+注意:命令的前面必须要有TAB，同时还需要依赖于某个目标文件或者伪目标文件
+
+什么是目标文件(可执行文件名)？自己要明确你需要编译的工程，从可执行文件入手
+可执行文件名:1.o文件
+	gcc 1.o -o 可执行文件名
+	
+1.o:1.s 
+	gcc -c 1.s -o 1.o 
+
+1.s:1.i
+	gcc -S 1.i -o 1.s 
+	
+1.i:1.c 
+	gcc -E 1.c -o 1.i
+绝对不会这么操作，因为编译出来的中间文件，在大型工程中只需要使用.o文件
+		||
+		\/
+可执行文件名:1.o文件
+	gcc 1.o -o 可执行文件名
+	
+1.o:1.c 
+	gcc -c 1.c -o 1.o
+
+clean:
+	rm link 1.o 
+	
+如果只执行make命令，一般不会调用伪目标的规则。
+如果想要调用伪目标规则，执行make 伪目标名称。
+
+二、隐式规则:把显示规则中该删除的都删除，make工程管理器可以自动根据原有的依赖文件进行推导
+  1 link:linklist.o main.o
+  2     gcc linklist.o main.o -o link                                           
+  3 
+  4 
+  5 #名字叫什么无所谓，没有依赖文件,这种文件叫做伪目标文件
+  6 .PHONY:clean  
+  7 #严格区分clean一定是伪目标文件
+  8 clean:
+  9     rm link *.o
+除了链接过程不能隐藏，其他过程都可以隐藏
+
+三、变量使用
+定义方法和脚本一样。定义的同时要初始化，=的两边有没有空格无所谓。
+obj = 1.o 2.o 赋值方法
+obj := 1.o 2.o 赋值方法 
+obj += 3.o   在obj变量原有内容基础上新增3.o文件
+
+obj	?= 4.o  如果obj变量原来有内容，则当前赋值失效
+
+引用方法:$(变量名) 或者 ${变量名}
+
+自动变量:
+$@:代表所有的不重复的目标文件 
+$^:代表所有的不重复的依赖文件
+$<:代表的是第一个依赖文件
+注意:自动变量使用的位置一定是在命令中(不能出现在依赖文件和目标文件的位置)
+
+在大型Makefile中，如果人家已经定义好了一些变量，我们需要查看变量内容？
+1、在vi的命令模式下输入#会将需要查找的变量高亮出来。
+	如果在本文件中找不到这个变量的赋值操作，需要使用2、3方法
+2、大型源码，提供了生成tags文件的方法  ctags -R，在指定目录下生成tags索引文件
+	通过ctrl + ] 来查找变量内容。
+	如
+3、make -p Makefile > 自定义文件名果这种方法还没有找到，则使用方法3
+无论哪种方法或者哪种软件，都不是万能的。
+
+四、条件语句
+ifeq ("字符串1","字符串2")
+
+endif 
+
+ifneq ("字符串1","字符串2")
+
+endif 
+
+
+#这里不是变量引用
+#如果A有内容，则执行ifdef的条件
+ifdef A     
+endif 
+
+ifndef 变量名 
+endif
+
+五、函数
+只需要能识别出什么格式是一个函数，剩下的——函数的参数，函数的功能，查手册。
+
+变量引用的格式: $(名称)
+函数的引用格式: $(名称 参数1,参数2,参数3,.....)
+
+$(a 1,2 3) 两个参数
+$(a 1,2,3) 三个参数
+
+例子:总控Makefile
+
+
+tftp:简单文件传输协议
+相互之间可以通过tftp来进行文件的收发（不能收发目录，拷贝二进制文件）
+1、sudo apt-get install tftpd-hpa  下载服务器
+   sudo apt-get install tftp-hpa  下载客户端，目的为了使用tftp命令
+   
+2、sudo vi /etc/default/tftpd-hpa 
+   TFTP_USERNAME="tftp"   不需要修改
+   TFTP_DIRECTORY="/tftpboot"  这里要注意:服务器控制的路径，需要手动在根目录下创建tftpboot文件夹,创建时注意权限
+   TFTP_ADDRESS="0.0.0.0:69" 不需要修改 
+   TFTP_OPTIONS="-l -c -s"  我改过的，修改这里的内容为:-l空格-c空格-s 
+3、重启服务:
+	sudo /etc/init.d/tftpd-hpa restart  ubuntu14.04之后就不能使用了
+	或者 sudo service tftpd-hpa restart  比较通用 
+	
+4、验证
+	在终端任意目录下执行:tftp 需要访问的那个主机的ip地址 
+	tftp> get 1.c   从服务器指定的/tftpboot目录下下载1.c文件，下载到当前路径
+	tftp> put 2.c   将当前目录下的2.c上传到服务器的/tftpboot目录下
+	
+nfs:网络文件系统
+1、sudo apt-get install nfs-kernel-server 
+
+2、sudo vi /etc/exports 
+	在这个文件的最后一行添加:
+	/rootfs *(rw,sync,no_subtree_check,no_root_squash)
+	注意千万别写#
+	rootfs在根目录下，需要我们自己创建
+	rw 读写权限
+	sync 同步 
+	no_subtree_check 不检查rootfs下子目录权限
+	no_root_squash  不排挤root用户，适用于root用户
+3、重启服务
+	sudo /etc/init.d/nfs-kernel-server restart  
+	或者 sudo service nfs-kernel-server restart
+4、验证:
+	sudo mount -t nfs 服务器ip地址:/rootfs /mnt
+										   叫做挂载点
+										   
+	卸载:sudo umount 挂载点
+				  

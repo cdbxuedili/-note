@@ -1,0 +1,326 @@
+使用等待队列的方法:
+1、在加载函数或者probe函数中执行init_waitqueue_head();
+2、在合适的位置调用wait_event();
+3、在合适的位置调用wake_up();
+
+wait_queue_head_t 等待队列头
+wait_queue_t 等待队列项
+
+内核根据以上两个结构，构建了一个双向循环链表，如何实现的进程阻塞？
+在等待队列项中封装了当前进程信息，封装了具备唤醒的接口。当进程调用到schedule()时，将进程信息保存在等待队列中，同时将进程信息从运行队列中删除。当具备唤醒条件后，将进程信息添加到运行队列中，最后从等待队列中将进程删除。
+
+当一个任务阻塞时，先将其保存起来，然后将进程从cpu中踢出。
+
+按键驱动:
+
+设备可以产生中断信号，这个信号会通过中断信号线交给中断控制器来处理(可能有多个中断控制器)
+——最后的一个中断控制器(GIC)一定和cpu先连.
+
+内核中实现了中断子系统:
+内核维护了一个struct irq_desc数组，数组下标叫做虚拟中断号、中断描述符，每个数组下标都可以
+索引到一些内容——struct irq_data、struct irq_action *,其中struct irq_data包含了struct irq_chip这个结构代表了中断控制器，以及中断控制器的一些接口，struct irq_action存放了中断
+处理函数、虚拟中断号、中断触发方式等等。以上内容除了irq_action的内容需要认为实现，其他的功能都是内核来做。
+
+如何注册中断信息？
+int request_irq(虚拟中断号，中断处理函数，触发方式，中断名称，共享中断使用);
+
+中断处理函数: irqreturn_t (*)(int,void *)
+			  
+触发方式:IRQF_TRIGGER_FALLING  IRQF_TRIGGER_RISING  IRQF_TRIGGER_HIGH IRQF_TRIGGER_LOW
+
+中断名称出现在/proc/interrupts中
+
+如何注销中断？
+void free_irq(虚拟中断号，void *);
+
+如何添加设备树？
+查看了底板UART_RING引脚，再到核心板找UART_RING,结果发现XEINT9/.../GPX1_1，说明当前这个引脚使用的是外部中断9，GPX1_1中的GPX1告诉使用者在当前平台下，这个名字就是一个中断控制器的名称，相应的设备树信息在exynos4x12-pinctl.dtsi
+
+可以找到
+gpx1:gpx1{
+	#interrupt-controllor;代表这个节点是一个中断控制器节点
+	interrupt-parent = <&gic>;//当前中断控制器的中断父节点是gic
+	//说明UART_RING——》gpx1中断控制器-》gic中断控制器-》cpu	
+	interrupts = <0 24 0>,<0 25 0>,<0 26 0>,....	
+					0        1         2
+};
+
+interrupts属性的内容可以是多变的。
+interrupts = <val1 val2 val3>;
+	val1中断类型，0代表共享中断，1代表私有中断
+	val2物理中断号
+	val3中断触发方式
+		1是上升沿触发
+		2是下降沿触发
+		4是高电平触发
+		8是低电平触发
+interrupts = <val1 val2>;
+		val1代表的是中断父节点中interrupts属性内容的索引值
+
+
+
+自己添加的设备树:
+key{
+	compatible = ",";
+	interrupt-parent = <&gpx1>;
+	interrupts = <1 2>,<2 2>
+};
+——————————————————————————————————————————————————————————————————————————————
+按键消抖问题:
+1、硬件消除抖动，按键的对应电路上并联一个电容
+2、软件消除抖动——通过定时器
+
+如何通过定时器消除抖动？
+1、init_timer(struct timer_list *);//初始化定时器
+		struct timer_list
+		{
+			void (*function)(unsigned long);//叫做定时器中断处理函数
+		}
+		
+2、add_timer(stuct timer_list *);//注册定时器
+3、mod_timer(struct timer_list *,unsigned long);//设置定时时间
+	参数2:定时的时间值，可能是一个绝对时间，可能是一个相对时间
+		  绝对时间:2018/5/17 9:52 30s 转为秒为单位传参
+		  相对时间:从系统开机到当前执行位置，中间的时间差用jiffies表示
+				   假设要定时5s，则只需要使用jiffies + 5s（只是例子，不严格）
+				   jiffies + 30 默认定时30ms
+				   jiffies + 3 * HZ / 100   HZ代表了1s
+			
+4、del_timer(struct timer_list *);//注销定时器
+
+中断上半部、下半部
+就将一个中断处理函数分成两个函数来分别处理。其中上半部用来处理紧急事件，下半部用来处理非紧急事件。
+
+什么是紧急事件？你认为是紧急的它就是紧急的。
+通常情况下:
+1、直接操作硬件时认为是紧急的
+2、对时间敏感的
+3、不能被其他中断打断的
+
+下半部有哪些用法？
+1、软中断
+2、小任务
+3、工作队列
+
+以上三种情况，软中断几乎不会用到，因为在内核中已经存在的软中断的中断号已经被占用。
+
+小任务:tasklet 
+void tasklet_init(struct tasklet_struct *t,void (*func)(unsigned long), unsigned long data)//初始化小任务
+参数1:
+参数2:中断下半部的处理函数
+参数3:给中断下半部处理函数传参
+
+static inline void tasklet_schedule(struct tasklet_struct *t);//调用中断下半部的接口
+
+上半部系统自动调用，下半部手动调用。
+什么情况手动调用下半部？在合适的位置
+通常情况下在中断上半部返回前调用。
+
+
+工作队列:
+INIT_WORK(struct work_struct *work,void (*)(struct work_struct *work));
+参数1:
+参数2:工作队列的下半部处理函数
+schedule_work();
+
+什么时候使用小任务，什么时候使用工作队列？
+上下文:一个任务如果时间片用完则需要释放cpu，释放之前需要保存进程信息。
+1、工作队列运行空间属于进程上下文
+	进程上下文:
+		寄存器级上下文
+		用户级上下文
+		内核级上下文
+2、小任务的运行空间属于中断上下文
+
+如果运行在中断上下文说明对时间敏感——尽量不要在中断上下文中出现延时类函数。
+小任务中不能使用互斥锁，可以使用自旋锁
+工作队列既可以使用互斥锁，又可以使用自旋锁
+
+
+560     fskey{
+561         key1 = <&gpx1 1 1>;
+562         key2 = <&gpx1 2 1>;
+563         key3 = <&gpx3 2 1>;                                                 
+564     };
+make dtbs 
+cp xxx.dtb /tftpboot
+
+int gpio_to_irq(unsigned int gpio)
+返回值:虚拟中断号 
+参数:引脚编号
+
+多路复用
+int select(int nfds, fd_set *readfds, fd_set *writefds,fd_set *exceptfds, struct timeval *timeout);
+功能:最多可以维护三张文件描述符表，如果表中没有就绪的文件描述符，则此函数阻塞。
+	 如果有就绪的文件描述符则select唤醒，同时会删除表中未就绪的文件描述符	
+返回值:>0代表了就绪的fd的个数
+	   -1代表出错
+	   0超时
+参数1:当前进程中最大文件描述符+1
+参数2:读表
+参数3:写表
+参数4:异常表
+参数5:超时检测
+	 
+FD_SET(文件描述符,&表名);//将文件描述符加入到表中
+FD_ISSET(文件描述符,&表名);//判断表中是否有查询的文件描述符
+FD_ZERO(&表名);//清空文件描述符表
+FD_CLR(fd,&表名);//手动删除表中的文件描述符
+
+vi arch/arm/include/uapi/asm/unistd.h
+110 #define __NR_select         (__NR_SYSCALL_BASE+ 82)
+				||
+				\/
+827 #define __NR_select 1067                                                    
+828 #define __ARCH_WANT_SYS_SELECT
+829 __SYSCALL(__NR_select, sys_select)		
+							||
+							\/
+	640     ret = core_sys_select(n, inp, outp, exp, to);
+						||
+						\/
+	599     ret = do_select(n, &fds, end_time);
+					||
+					\/
+	460     mask = (*f_op->poll)(f.file, wait);
+	总结:上层的select调用了底层驱动中的poll接口
+————————————————————————————————————————————————————————————————————————————————————
+回到do_select函数的初始位置，看源码:
+417     poll_initwait(&table);	
+				||
+				\/
+121     init_poll_funcptr(&pwq->pt, __pollwait);                               
+122     pwq->polling_task = current;//存放当前进程信息
+				||
+				\/
+69 static inline void init_poll_funcptr(poll_table *pt, poll_queue_proc qproc) 
+ 70 {    
+ 71     pt->_qproc = qproc;
+ 73 }
+typedef void (*poll_queue_proc)(struct file *, wait_queue_head_t *, struct poll_table_struct *);
+poll_queue_proc是一个函数指针类型。又知道__pollwait给qproc传参的。函数名可以作为函数指针的实参。所以__pollwait就是一个函数名。
+只要我们在合适的位置调用到了_qproc，就是在调用__pollwait
+
+ 111  * Two very simple procedures, poll_wait() and poll_freewait() make all the
+ 112  * work.  poll_wait() is an inline-function defined in <linux/poll.h>,
+ 113  * as all select/poll functions have to call it to add an entry to the
+ 114  * poll table.
+ 115  */
+ 在驱动中如果想要使用底层的poll功能，必须要调用poll_wait();
+ 
+ 116 static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,    poll_table *p);
+
+ vi -t poll_wait
+ 42 static inline void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table *p)
+ 43 {
+ 44     if (p && p->_qproc && wait_address)
+ 45         p->_qproc(filp, wait_address, p);//就是在调用__pollwait函数
+ 46 }
+
+ 重新进入__pollwait函数：
+ 219 static void __pollwait(struct file *filp, wait_queue_head_t *wait_address,
+ 220                 poll_table *p)
+ 221 {
+ 222     struct poll_wqueues *pwq = container_of(p, struct poll_wqueues, pt);
+ 223     struct poll_table_entry *entry = poll_get_entry(pwq);
+ 224     if (!entry)
+ 225         return;
+ 226     entry->filp = get_file(filp);
+ 227     entry->wait_address = wait_address;//等待队列头 
+ 228     entry->key = p->_key;
+ 229     init_waitqueue_func_entry(&entry->wait, pollwake);
+ 230     entry->wait.private = pwq;
+ 231     add_wait_queue(wait_address, &entry->wait);//将进程信息添加到等待队列中，这就是为什么select有阻塞的原因
+ 232 }
+ 
+ 
+ 229     init_waitqueue_func_entry(&entry->wait, pollwake);//调用
+ 94 init_waitqueue_func_entry(wait_queue_t *q, wait_queue_func_t func) //定义
+ 95 {    
+ 98     q->func     = func;
+	 //核心代码就是在使用func，而func被pollwake传参，所以整体函数的核心由pollwake决定
+	 //找到pollwake的源码，发现本质就是使进程状态变成TASK_WAKING
+ 99 }
+  总结:说明只要我们在驱动中自己调用了poll_wait函数则就会将阻塞以及唤醒所需要的各种内容存放到内核指定结构体中。
+  
+460    mask = (*f_op->poll)(f.file, wait);
+返回了一个mask。
+463                     if ((mask & POLLIN_SET) && (in & bit)) {实现读操作
+ 464                         res_in |= bit;               
+ 465                         retval++;//结果会拷贝应用层中的select函数
+ 466                         wait->_qproc = NULL;
+ 467                     }
+ 468                     if ((mask & POLLOUT_SET) && (out & bit)) {写操作
+ 469                         res_out |= bit;
+ 470                         retval++;
+ 471                         wait->_qproc = NULL;
+ 472                     }
+ 473                     if ((mask & POLLEX_SET) && (ex & bit)) {异常操作
+ 474                         res_ex |= bit;
+ 475                         retval++;
+ 476                         wait->_qproc = NULL;
+ 477                     }
+mask的值是驱动中poll接口的返回值，如果需要读，则mask的具体内容从POLLIN_SET中选择。
+
+异步通知:
+fd = open("1.txt",O_RDONLY);
+flag =fcntl(fd,F_GETFL);//获取文件的属性——O_RDONLY
+flag |= O_ASYNC;
+fctnl(fd,F_SETFL,flag);//将设置过的属性写入file结构体中
+以上内容，进程已经知道该操作SIGIO信号了，但是不知道哪个进程在操作
+fcntl(fd,F_SETOWN,进程号);//让指定进程去操作SIGIO信号
+
+fcntl也是一个系统调用
+vi arch/arm/include/uapi/asm/unistd.h 
+#define __NR_fcntl          (__NR_SYSCALL_BASE+ 55)
+			||
+			\/
+781 #define __NR_fcntl 1052                                       
+782 __SYSCALL(__NR_fcntl, sys_fcntl)
+							||
+							\/
+		363         err = do_fcntl(fd, cmd, arg, f.file);
+							||
+							\/
+269     case F_GETFL:
+270         err = filp->f_flags;
+271         break;
+
+272     case F_SETFL:                    
+273         err = setfl(fd, filp, arg);
+					||
+					\/
+	68         error = filp->f_op->fasync(fd, filp, (arg & FASYNC) != 0);
+			   说明:上层的fcntl可以调用到驱动中的int (*fasync) (int, struct file *, int);
+293     case F_SETOWN:
+294         err = f_setown(filp, arg, 1);//将进程号存放到file结构体中
+
+
+vi -t fasync_helper
+650     new = fasync_alloc();//申请空间
+661     if (fasync_insert_entry(fd, filp, fapp, new)) {
+					||
+					\/
+	629     new->magic = FASYNC_MAGIC;
+	630     new->fa_file = filp;
+	631     new->fa_fd = fd;
+	632     new->fa_next = *fapp;
+	633     rcu_assign_pointer(*fapp, new);
+	634     filp->f_flags |= FASYNC
+	为了给后续的信号的注册提供基本信息。
+
+	
+vi -t kill_fasync
+	     ||
+		 \/
+719    kill_fasync_rcu(rcu_dereference(*fp), sig, band);
+			||
+			\/
+705       send_sigio(fown, fa->fa_fd, band); 
+			||
+			\/
+500         send_sigio_to_task(p, fown, fd, band, group);
+					||
+					\/
+	475     do_send_sig_info(SIGIO, SEND_SIG_PRIV, p, group);
+			给指定进程注册SIGIO信号

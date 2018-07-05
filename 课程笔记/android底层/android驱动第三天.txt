@@ -1,0 +1,66 @@
+【1】Android.mk
+   android系统使用Android.mk 编译应用程序以及jni程序等。
+   
+   androidL/ndk/docs/text$ ANDROID-MK.text
+
+      
+    26     - A static library.
+ 27     - A shared library.                                                                                    
+ 28     - A standalone executable.  可执行程序
+ 
+ 
+ 例子：
+    ./development/ndk/samples/hello-jni
+	
+	 LOCAL_PATH := $(call my-dir)   返回程序的目录
+	 include $(CLEAR_VARS)    清环境变量
+	 LOCAL_MODULE := hello-jni   生成模块的名字   libhello-jni.so 
+     LOCAL_SRC_FILES := hello-jni.c  指定源文件
+	 include $(BUILD_SHARED_LIBRARY)  编译生成动态库
+	 
+	 
+	 include $(BUILD_STATIC_LIBRARY) 编译静态库  
+	  
+	 include $(BUILD_EXECUTABLE)  编译可执行程序
+	 
+	 
+	 
+
+  source    build/envsetup.sh 
+  
+      - m:      Makes from the top of the tree.
+   8 - mm:      Builds all of the modules in the current directory, but not their dependencies.
+   9 - mmm:     Builds all of the modules in the supplied directories, but not their dependencies.
+                              	 
+
+   在使用三个命令之前：
+       source  build/envsetup.sh  
+       lunch   7
+	   
+  
+
+  android系统：
+    在加载动态库是默认寻找的动态库的目录  /system/lib  /vendor/lib 
+     
+
+	 
+http://emb.hqyj.com/Column/	 
+
+#include  <android/log.h>
+  在Java环境下使用JNI时可以方便的使用printf函数打印信息，在Eclipse控制台Console视图可以方便的观察到，可在Android环境下使用JNI的话，printf函数就无效了，LogCat视图和Console视图里看不到任何输出。但我们可以使用Android本身的log方法，其实现步骤如下：
+1、在JNI的实现代码文件（.c或者.cpp）中加入包含LOG头文件的如下代码：
+#include <android/log.h>
+
+2、在需要打印的方法中添加打印代码，例如：
+__android_log_print(ANDROID_LOG_INFO, "JniX431FileTest", "lsx_init");
+
+ANDROID_LOG_INFO：是日志级别；
+"JniX431FileTest"：是要过滤的标签，可以在LogCat视图中过滤。
+"lsx_init"：是实际的日志内容。
+
+
+
+  引用系统库 
+      LOCAL_SHARED_LIBRARIES  +=liblog
+	
+   	  

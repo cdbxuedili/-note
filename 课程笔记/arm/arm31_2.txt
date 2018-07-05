@@ -1,0 +1,254 @@
+
+
+主存储器:
+		rom :出厂固化不可更改,一般放引导代码
+		
+		SRAM: 容量较小,带电数据即不丢失,不需要初始化;用于低性能单片机,中高性能处理器的初始化代码执行
+		SDRAM / DDRRAM: 成本低, 数据易失,需要刷新电路维持数据,所以需要初始化才能使用
+		
+		
+外部存储器:
+	磁介质:
+		硬盘,廉价 稳定,怕震荡
+		
+	光:
+		cd / dvd
+	
+	电:
+		eeprom:
+		
+		flash: 写入寿命有限,存储数据时间寿命有限 一般10年左右
+			nand: 块设备,只能按块读取数据不能按字节随机访问
+			nor:  可以随机访问,可以代替内存,不能放变量
+			
+arm处理器数据类型:(对于cpu本身 不区分有误符号)
+	
+	byte: 8bit
+	halfword: 16bit
+	word: 32bit
+	
+cortex-a:
+	double word:64it
+	
+arm指令集:
+	ARM:  32bit 
+	thumb:16bit
+cortex-a:
+	thumb-2: arm + thumb   32bit + 16bit
+	
+	java:8bit
+	
+	thumb-ee: thumb-2 java   >> art
+	
+7种工作模式:
+	
+	user 	:唯一的非特权模式,用于运行正常功能代码
+	system  :与user共享资源的 特权模式
+	
+	FIQ:  快速外部中断模式
+	IRQ:  普通中断模式
+	
+	svc: 处理器初始化状态,swi指令异常
+	
+	abort:	内存错误{数据异常\取址异常}
+	undef:  读取的机器码 错误;未定义指令异常
+	
+	
+cortex-a:
+	mo ...
+	
+	
+	PC(R15): 程序计数器
+	lr(r14): 链接寄存器,(保存返回地址)
+	sp(r13): 栈顶指针
+	
+	cpsr:程序状态寄存器 nzcv  jt  IF MODE
+	SPSR:程序状态备份寄存器,在异常切换的时候自动备份cpsr
+
+main()
+{
+	printf();
+	....
+}	
+	
+	
+分支指令:
+	b:    b fun   >> goto  fun >> pc = &fun;
+	bl:   bl fun   >> fun();   >> lr = pc; pc = &fun;
+	
+	
+	
+	
+arm流水线:
+
+最佳流水线:
+-1:
+	f: add
+	d:
+	e:
+0:
+	f:sub
+	d:add
+	e:	
+1:
+	f:orr
+	d:sub
+	e:add	
+2:
+	f:and
+	d:orr
+	e:sub	
+	
+LDR:
+
+-1:
+	F:ADD
+	D:
+	E:
+0:
+	F:SUB
+	D:ADD
+	E:
+1:
+	F:LDR
+	D:SUB
+	E:ADD	
+2:
+	F:AND
+	D:LDR
+	E:SUB
+3:
+	F:ORR
+	D:AND
+	E:LDR r0,[r1]  //准备资源	
+4:
+	F:ORR  wait
+	D:AND  wait
+	E:M // 访问内存:将内存数据读取到cpu
+5:
+	F:ORR
+	D:AND
+	E:W // 写回: 将数据写入到 目的寄存器
+6:   //ldr 执行完成,流水线恢复正常
+	F:eor
+	D:ORR
+	E:AND
+	
+	......
+	
+
+BL分支流水线:
+
+-1:	PC = 0X8000
+	F:BL 0X8FEC
+	D:
+	E:
+
+0:	PC = 0X8004    pc_old = 0x8000 //上一个周期的pc值
+	F:SUB
+	D:BL 0X8FEC
+	E:
+
+1:	PC = 0X8008 pc_old = 0x8004
+	F:ORR
+	D:SUB
+	E:BL 0X8FEC  =>> PC = 0X8FEC 
+	
+2:	PC = 0X8FEC pc_old = 0x8008
+	F: and
+	D:	//发现地址跳转,丢弃数据
+	E: L:链接lr = pc_old == 0x8008   //返回地址跑偏4字节
+									//保存上一个周期的地址
+3:	PC = 0X8Ff0 pc_old = 0x8fec
+	F:orr 
+	D:and	
+	E: A:调整  lr = lr - 4 == 0x8004 //硬件自动纠正4字节
+	
+4:	PC = 0X8Ff4 pc_old = 0x8ff0
+	F:eor 
+	D:orr	
+	E:and
+
+......
+
+mov pc,lr
+
+
+IRQ 流水线:
+
+-1:
+	F:ADD
+	D:
+	E:
+0:
+	F:SUB
+	D:ADD
+	E:
+1: PC = 0X8008   irq产生
+	F:MOV
+	D:DI    //中断拦截 解码单元
+	E:ADD	//中断不会打断正在执行的指令
+2: PC = 0X800C   
+	F:*(0x800c)	
+	D:   产生中断,丢弃数据WAIT
+	E:EI spsr = cpsr ;cpsr[I = 1][T = 0][MODE = 0B10010]; PC = 0X18	
+
+	
+3: PC = 0X18  pc_old = 0x800c	
+	F:b 0xaf00
+	D:  // 发生跳转,丢弃数据
+	E:L lr = pc_old = 0x800c // 地址跑偏8字节
+	
+4: PC = 0X1c  pc_old = 0x18	
+	F:*(0x1c)
+	D:b 0xaf00
+	E:A lr = lr - 4 == 0x8008 // 返回地址跑偏4字节,需要手动纠正 	
+	
+5: PC = 0X20  pc_old = 0x1c	
+	F:*(0x20)
+	D:*(0X1C)
+	E:b 0xaf00  PC = 0XAF00
+	
+6:PC = 0XAF00
+	F:stmfd
+	D:
+	E:
+7:PC = 0XAF04
+	F:mov 
+	D:stmfd
+	E:
+7:PC = 0XAF08
+	F: ldr
+	D:mov
+	E:stmfd
+	
+.....	
+sub lr,lr,#4	//返回前 必须将lr 减4
+movs pc,lr	
+	
+	
+subs pc,lr,#4	
+	
+	
+	
+	1.中断不会打断正在执行的指令
+****2.返回地址 需要手动纠正
+	3.中断产生到执行 至少需要7个周期
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+

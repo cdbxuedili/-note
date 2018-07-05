@@ -1,0 +1,109 @@
+﻿【1】uboot移植的步骤
+    1、删除生成.o 文件
+	   make  distclean
+	2、添加交叉编译器
+     Makefile
+       ifeq  (arm,$(ARCH))	
+          CROSS_COMPILE=
+    3、配置uboot
+	   make  origen_config
+	   
+	4、make
+
+          u-boot         elf  调试
+          u-boot.bin   开发板上运行的可执行程序   objcopy  elf------>bin  
+          u-boot.lds   指定uboot的运行地址，入口
+          u-boot.map   uboot不同的代码放到不同的段中
+          System.map   uboot执行过程	
+		  
+【2】uboot的启动流程
+    arch/arm/cpu/armv7/start.S  
+	 
+    1、初始化异常向量表
+    2、设置cpu的工作模式，关中断
+    3、 关MMU,使能i-cache
+    4、初始化系统时钟
+    5、初始化内存
+    6、初始化串口
+    7、  bl  _main       arch/arm/lib/crt0.S
+	  设置栈（初始化c语言的运行环境）
+	8、清bss段(uboot的第一阶段（汇编）已经执行完成，跳转到第二阶段(c))
+         ldr pc, =board_init_r   /* this is auto-relocated! */	
+	        
+         	   arch/arm/lib/board.c
+ 	
+    9、初始化外设
+	         flash  串口  网卡  中断
+   		  
+	10、引导内核（bootcmd）
+	
+
+	*************************************************************************
+	_start:     arch/arm/cpu/armv7/start.S
+	       |
+		   |
+           | 		   
+	       b  reset      arch/arm/cpu/armv7/start.S
+		     |
+			 |  设置cpu的工作模式，关中断
+			 |
+			 |
+			 |
+		  bl  cpu_init_cp15	    arch/arm/cpu/armv7/start.S
+		      |   关MMU,使能i-cache 
+			  |
+              |		 
+		  bl  cpu_init_crit	   board/samsung/orgien/lowlevel_init.S
+               |    初始化系统时钟
+               |     初始化内存	
+               |     初始化串口 	
+			   | 		
+		  bl  _main   arch/arm/lib/crt0.S
+               |   设置栈（初始化c语言的运行环境）
+               |   清bss段
+               |
+             ldr pc, =board_init_r    arch/arm/lib/board.c
+               |
+               |   serial_initialize();
+               |     mmc_initialize(gd->bd);
+               |       console_init_r();   /* fully init console as a device */
+               |       interrupt_init();
+			   |		652     /* enable exceptions */
+			   | 		653     enable_interrupts(); 					 
+		  main_loop();   common/main.c 
+		       s = getenv ("bootdelay");  获取延时时间
+			     s = getenv ("bootcmd");  获取自启动命令
+				    判断是否有按键按下，没有运行bootcmd命令
+				     if (bootdelay != -1 && s && !abortboot(bootdelay)) ｛
+					       run_command_list(s, -1, 0);
+					 ｝ 
+		 setenv  bootcmd  tftp  410000000 uImage  \;tftp  42000000 exynos4412-fs4412.dtb  \;bootm  41000000 - 42000000
+		 
+
+【3】开发板如何启动
+    IROM:soc厂商固化的代码：  BL0
+	    作用：  
+		    1、关看门狗
+			2、关中断和MMU
+			3、关D-CACHE,使能I-CACHE 
+			4、初始化栈
+			5、获取复位状态
+			6、设置时钟
+			7、获取启动模式（SD/EMMC）
+			8、检查BL1镜像的完整性，对bl1镜像解密，如果成功，拷贝BL1到iram中运行，
+			    跳转到BL1
+    BL1:加密文件
+       1、初始化中断，设置栈
+       2、BL1检查BL2镜像的完整性，如果成功，把BL2镜像拷贝到iram中运行，跳转到BL2
+    
+    BL2:
+       1、设置时钟
+       2、初始化DRAM
+       3、检查BL3镜像的完整性，如果成功，把BL3镜像拷贝到dram中运行，跳转到DRAM
+	   
+
+
+
+    		 
+        
+			

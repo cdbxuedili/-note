@@ -1,0 +1,5 @@
+# depslib dependency file v1.0
+1527560329 source:d:\c++例程\第一天\demo3_c++为什么建议使用const替换宏\main.cpp
+	<iostream>
+	<cstdio>
+

@@ -1,0 +1,343 @@
+中断:(吕阿龙)
+外部设备产生中断信号——>中断控制器 ... ——>中断控制器 ——>GIC ——>CPU
+
+注册中断:
+struct resource *platfrom_get_resource(struct platfrom_device *,IORESOURCE_*,0);
+request_irq(中断号,中断处理函数,中断类型 | 触发方式,中断名称,如果是共享中断需要此参数);
+
+free_irq();注销中断
+
+按键中断前先实现按键的设备树：
+interrupt-parent = <&gpx1>;
+interrupts = <1 2>;
+
+实现按键中断的过程:
+1、完成了platform 驱动框架
+	验证
+	
+2、如果驱动和设备树匹配，执行probe
+3、在probe中实现字符设备框架
+	验证
+	
+4、获取中断号
+   注册中断号
+   实现中断处理函数，这里按键值上报
+   被应用层读走(没有中断产生时，读函数要阻塞)
+   因为要阻塞，所以实现等待队列
+   验证
+   
+如果按键出现抖动——通过定时器实现消抖。
+1、初始化定时器 init_timer();
+				xxx.functiong = 定时器的中断处理函数
+2、添加定时器到操作系统 add_timer();
+3、设置定时时间 mod_timer(,jiffies + 5*HZ/100);
+4、如果定时器时间到了，则执行定时器的中断处理函数
+
+第八天
+中断上下半部
+ADC驱动的实现
+I2C总线协议、I2C基本框架知识、I2C设备树的添加
+
+什么是中断上、下半部？注意:不是中断上下文
+通常情况下如果有中断产生，肯定会操作中断处理函数，但是中断处理函数保证尽快完成。那么如果
+实际需求，中断中有很多功能需要实现怎么办？
+linux操作系统将中断分成两部分:上半部和下半部，其中上半部执行非常紧急的事件，下半部执行不太紧急的事件。（中断上下半部其实就是将之前我们使用的中断处理函数分成两个函数来使用）
+
+什么是紧急事件？仁者见仁、智者见智——没有一个严格规定。
+1、功能对时间非常敏感
+2、硬件相关中断操作
+3、不能被其他中断打断的事件
+
+何时执行紧急事件、何时执行非紧急事件？
+有中断来就执行紧急事件，一般情况下当紧急事件退出时去执行非紧急事件。
+
+如何实现并且使用上、下半部？
+linux内核中主要见到三种方法:软中断、tasklet、工作队列，要求会使用后两种。
+
+如果想使用软中断来实现下半部:
+1、在include/linux/interrupt.h中的
+347 enum                                                                        
+348 {
+349     HI_SOFTIRQ=0,
+350     TIMER_SOFTIRQ,
+351     NET_TX_SOFTIRQ,
+352     NET_RX_SOFTIRQ,
+353     BLOCK_SOFTIRQ,
+354     BLOCK_IOPOLL_SOFTIRQ,
+355     TASKLET_SOFTIRQ,
+356     SCHED_SOFTIRQ,
+357     HRTIMER_SOFTIRQ,
+358     RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
+359     XXX_SOFTIRQ,
+360     NR_SOFTIRQS
+361 };
+添加一个自己能用的标记，比如添加XXX_SOFTIRQ
+
+2、在kernel/softirq.c中的
+ 59 const char * const softirq_to_name[NR_SOFTIRQS] = {
+ 60     "HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "BLOCK_IOPOLL",
+ 61     "TASKLET", "SCHED", "HRTIMER", "XXX","RCU"
+ 62 };
+
+3、在kernel/softirq.c中，导出open_softirq以及raise_softirq这两个函数的符号表
+	430 void open_softirq(int nr, void (*action)(struct softirq_action *))          
+	431 {
+	432     softirq_vec[nr].action = action;
+	433 }
+	EXPORT_SYMBOL_GPL(open_softirq);//导出符号表
+	
+	void (*action)(struct softirq_action *)被调用时就是我们所谓的下半部
+4、重新编译内核镜像make uImage,此时才可以使用open_softirq以及raise_softoirq
+
+tasklet——小任务
+
+tasklet_init();初始化tasklet
+tasklet_schedule();通知下半部中断处理函数可以执行了。
+
+工作队列:
+INIT_WORK();
+schedule_work();
+
+什么时候使用工作队列、什么时候使用tasklet？
+1、当下半部代码中有阻塞或者睡眠类函数时则必须使用工作队列。
+2、当下半部代码要求短时间内执行完成，使用tasklet。
+
+注意:工作队列只运行于进程上下文、tasklet只能运行于中断上下文。
+
+什么是进程上下文？当进程和进程之间进行切换时保存以及恢复的资源就叫做进程上下文
+什么是中断上下文？一个进程被中断抢占时，使用到的中断的信息以及进程信息被中断上下文
+
+————————————————————————————————————————————————————————————————————————————————————
+ADC:模拟数字转换器——将模拟信号转化成数字信息。
+
+ADC驱动实现转换值传递给应用程序:
+1、设置ADCCON 预分频值、使能预分频、设置转换精度
+	注意:每次开始转换前都要使能ADCCON第0位为1
+	
+2、设置转换通道，设置为通道3  ADCMUX
+
+3、从ADCDAT寄存器中获取数据，拷贝到应用程序
+	
+如何获取ADCDAT中寄存器的值？轮询方式、中断方式
+ADC的中断何时产生？当数据转换完成时产生中断，但是这个中断属于内部中断。
+写驱动前必须先将ADC的中断信息添加到设备树中。
+
+adc{
+	compatible = "fs4412,adc";
+	reg = <0x126C0000 0x20>;
+	interrupt-parent = <>;
+	interrupts = <>;
+};
+在adc设备树中如果要添加中断的话，首先先明确它是一个内部中断，内部中断到芯片手册的第十章查看，INTG10    3    ADC  combiner的第十组的第三位是ADC的中断源。
+
+combiner: interrupt-controller@10440000 {
+ 96         compatible = "samsung,exynos4210-combiner";
+ 97         #interrupt-cells = <2>;   子节点中中断源有两个值                                          
+ 98         interrupt-controller;是一个中断控制器
+ 99         reg = <0x10440000 0x1000>;
+100     };
+
+interrupt-parent = <&combiner>;
+interrupts = <10 3> ??????
+进入Documentation/devicetree/bindings/arm/samsung/interrupt—combiner.txt
+23 - #interrupt-cells: should be <2>. The meaning of the cells are
+ 24     * First Cell: Combiner Group Number.                                    
+ 25     * Second Cell: Interrupt number within the group.
+
+所以最终adc的设备树添加如下:
+adc{
+	compatible = "fs4412,adc";
+	reg = <0x126C0000 0x20>;
+	interrupt-parent = <&combiner>;
+	interrupts = <10 3>;
+};
+
+开始写adc驱动:
+1、实现platform驱动架构
+2、匹配成功后在probe函数中实现字符设备框架
+3、设置ADCCON ADCDAT ADCMUX CLRINTADC
+
+———————————————————————————————————————————————————————————————————————————————— 
+
+I2C总线协议 
+I2C总线有两根线:数据线、时钟线。
+
+主机:主动寻址的设备
+从机:被寻址的设备
+
+主机和从机之间需要通信(发送/接收)
+
+主机和从机如何进行数据收发？
+起始信号：发送或者接收数据前要先产生起始信号，起始信号一定是主机发起的，当时钟线为高电平，数据线由高到低跳变时产生起始信号。时序图中S代表起始信号
+
+结束信号:时钟线保持高电平，数据线由低电平跳变为高电平产生结束信号。P代表结束信号
+
+在起始信号和结束信号之间需要传递数据。注意:这里所谓的数据既包含地址又包含普通数据。
+在起始信号后，收发数据前，保证能找到指定的存在的设备，所以起始信号后产生的数据一定是地址，主机在起始信号后要发送一个地址到I2C总线上，此时I2C总线上所有的从机都会匹配主机发送的地址，如果匹配了则说明后续可以进行发送或者接收数据。
+
+I2C总线通信过程中，所有的数据都是8位，如果这8位数据作为地址来使用则高7位是从机地址，第八位是传输方向。
+
+高7位地址有什么特点？通常情况下前4位由厂家指定，后3位由用户指定，此种情况说明在I2C总线上最多可以连接8个同种设备。但是在MPU6050手册中规定死 110100x，其中x由AD0引脚决定，如果AD0接地则MPU6050从机地址是0x68
+
+第八位如果是0代表主机给从机发送数据，如果是1代表主机接收从机数据。
+
+第九位叫做应答位ACK，第九位如果在时钟线保持高电平期间，数据线是低电平则说明有应答。
+
+主机和从机之间数据发送的情况:
+1、主机产生起始信号 + 7位从机地址，0(主机给从机发送数据) + 从机给主机发送ACK + 8位数据 
+...... + 8位数据 + 从机给主机发送ACK + 结束信号
+
+2、主机产生起始信号 + 7位从机地址，1(主机接收从机数据) + 从机给主机发送ACK + 从机给主机发送8位数据 + 主机给从机应答ACK ...... 结束信号
+
+3、主机产生起始信号 + 7位从机地址，0(主机给从机发送数据) + 从机给主机应答 + 主机给从机发送8位数据 + 从机给主机应答 + 重新产生起始信号 + 7位从机地址，1 + 从机给主机应答 + 从机给主机发送数据 + 主机给从机应答 .... + 结束信号。
+
+—————————————————————————————————————————————————————————————————————————————————— 
+操作系统内核中I2C主机从机涉及到的框架：
+
+用户空间           应用程序
+——————————————————————||————————————————————————————————————————————————————————
+内核空间			  \/
+				   系统调用
+					  ||
+					  \/
+				   文件系统
+					  ||
+					  \/
+				  I2C设备驱动层(从机驱动)
+					  /\
+					  || 交互
+					  \/
+				  I2C核心层
+					  /\
+					  || 交互
+					  \/
+				  I2C总线驱动(主机驱动)
+——————————————————————||————————————————————————————————————————————————————————————————
+					  \/
+					I2C总线控制器(主机)
+					  ||
+					  ||
+					挂接了多个I2C从机设备
+
+
+简化问题:
+1、设备驱动层
+	给应用程序提供接口
+	知道发送或者接收哪些数据，但是不知道如何发送如何接收数据
+	
+2、I2C核心层(承上启下)
+	向上给设备驱动层提供接口
+	向下给总线驱动层提供接口
+
+3、总线驱动层
+	初始化并且使能I2C主机
+	知道如何发送如何接收数据，但是不知道发送或者接收哪些数据
+
+I2C核心层以及I2C总线驱动层是由内核实现的，I2C设备驱动层我们自己实现。
+
+I2C总线驱动特点:由于历史原因在exynos5之前的芯片版本，I2C总线驱动和s3c2410这款芯片通用。
+vi driver/i2c/busses/i2c-s3c2410.c 
+
+1286 static int __init i2c_adap_s3c_init(void)  模块自定义入口                                
+1287 {
+1288     return platform_driver_register(&s3c24xx_i2c_driver);
+		将当前注册到platform总线中。
+1289 }
+1290 subsys_initcall(i2c_adap_s3c_init);//等价于module_init();
+
+static struct platform_driver s3c24xx_i2c_driver = {
+1275     .probe      = s3c24xx_i2c_probe,
+1276     .remove     = s3c24xx_i2c_remove,
+1277     .id_table   = s3c24xx_driver_ids,
+1278     .driver     = {
+1279         .owner  = THIS_MODULE,
+1280         .name   = "s3c-i2c",
+1281         .pm = S3C24XX_DEV_PM_OPS,
+1282         .of_match_table = of_match_ptr(s3c24xx_i2c_match),                 
+1283     },
+1284 };
+继续进入s3c24xx_i2c_probe函数:
+1072 static int s3c24xx_i2c_probe(struct platform_device *pdev)
+{
+	1107     i2c->adap.algo    = &s3c24xx_i2c_algorithm;
+}										||
+										\/
+						787 static const struct i2c_algorithm s3c24xx_i2c_algorithm = {
+						788     .master_xfer        = s3c24xx_i2c_xfer, 
+						}									||
+															\/
+						760         ret = s3c24xx_i2c_doxfer(i2c, msgs, num); 		
+											||
+											\/
+				695     ret = s3c24xx_i2c_set_master(i2c);判断总线是否繁忙
+				708     s3c24xx_i2c_enable_irq(i2c);使能I2C总线的发送或者接收功能
+				709     s3c24xx_i2c_message_start(i2c, msgs);
+									||
+									\/
+								if (msg->flags & I2C_M_RD) {                                           
+							 267         stat |= S3C2410_IICSTAT_MASTER_RX;
+							 268         addr |= 1;
+							 269    } else
+							 270         stat |= S3C2410_IICSTAT_MASTER_TX;
+							 上面代码来控制主机是发送还是接收数据
+
+							 276     s3c24xx_i2c_enable_ack(i2c);使能应答位
+
+			 720     timeout = wait_event_timeout(i2c->wait, i2c->msg_num == 0, HZ * 5);
+								阻塞
+回到i2c-s3c2410.c的probe函数中，从1107     i2c->adap.algo    = &s3c24xx_i2c_algorithm;
+的下面继续读取代码。
+
+1172     ret = devm_request_irq(&pdev->dev, i2c->irq, s3c24xx_i2c_irq, 0,     dev_name(&pdev->dev), i2c);
+
+s3c24xx_i2c_irq我们需要的中断处理函数。
+	||
+	\/
+598     i2c_s3c_irq_nextbyte(i2c, status);
+				||
+				\/
+		422     case STATE_START://说明已经有起始信号了。
+		        if (i2c->msg->flags & I2C_M_RD)   
+		 437             i2c->state = STATE_READ;                                       
+		 438         else
+		 439             i2c->state = STATE_WRITE;
+				flags如果为1则执行STATE_READ分支
+				flags如果为0则执行STATE_WRITE分支
+				flags哪来的？设备驱动层传过来的。
+
+如果flags被赋值为0，则执行
+455     case STATE_WRITE:
+ 456         /* we are writing data to the device... check for the
+ 457          * end of the message, and if so, work out what to do
+ 458          */
+ 459 
+ 460         if (!(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
+ 461             if (iicstat & S3C2410_IICSTAT_LASTBIT) {
+ 462                 dev_dbg(i2c->dev, "WRITE: No Ack\n");                      
+ 463 
+ 464                 s3c24xx_i2c_stop(i2c, -ECONNREFUSED);
+ 465                 goto out_ack;
+ 466             }
+ 467         }
+
+如果flags被赋值为1，则执行：
+517     case STATE_READ:
+ 523         byte = readb(i2c->regs + S3C2410_IICDS);                           
+ 524         i2c->msg->buf[i2c->msg_ptr++] = byte;
+ 
+以上内容分别由I2C总线驱动提供了读数据和写数据的方法(没有具体读写的内容，这些内容由设备驱动提供)
+
+总结:I2C总线驱动层实现了起始信号的使能，ACK的使能，读写数据的方法，结束信号的操作。
+
+下面我们要做到的是数据如何传给I2C总线驱动？要先分析I2C核心层，最后实现I2C设备驱动层。
+
+I2C核心层:drivers/i2c/i2c-core.c 
+
+
+
+
+
+
+
+
+

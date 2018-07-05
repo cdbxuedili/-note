@@ -1,0 +1,183 @@
+多路复用:
+
+select
+
+int select(文件描述符最大值+1，读表，写表，异常表，超时检测);
+如果没有文件描述符就绪则阻塞，如果有文件描述符就绪则唤醒，同时还会清掉未就绪的文件描述符 
+
+FD_SET(fd,&表名称);
+FD_ISSET(fd,&表名称);//判断文件描述符是否在表中
+FD_ZERO(&fds);清空文件描述符表
+FD_CLR(fd,&fds);将文件描述符从表中删除
+
+
+epoll
+int epoll_create(int size);
+
+struct epoll_event ev;
+ev.events = EPOLLIN;
+ev.data.fd = 监控的文件描述符;
+epoll_ctl(epfd,EPOLL_CTL_ADD,需要监控的文件描述符,struct epoll_event *);
+
+
+struct epoll_event readyev[100];
+while(1)
+{
+	就绪的个数ret = epoll_wait(epfd,readyev,100,超时时间);
+	
+	for(i = 0;i < ret;i ++)
+	{
+		if(readyev[i].data.fd == sockfd)
+		{
+			datafd = accept();
+			
+			ev.events = EPOLLIN;
+			ev.data.fd = datafd;
+			epoll_ctl(epfd,EPOLL_CTL_ADD,datafd,&ev);
+		}
+		else 
+		{
+			recv();
+		}
+		
+	}
+}
+——————————————————————————————————————————————————————————————————————————————
+
+广播和组播只适用于UDP
+广播:广播地址主机号全1，当前网段是:172.25.1.0,广播地址172.25.1.255
+
+			    A主机                ——————————————                 B主机 
+
+应用层       协议头——数据         							    ftp头——数据 
+				  ||												 /\
+				  \/											     ||
+传输层      UDP头——ftp头——数据     							TCP头——ftp头——数据
+了解:tcp头或者udp头中包含源端口和目的端口号                 判断目的端口在本机中是否使用
+				  ||												  /\
+				  \/												  ||
+网络层      IP头——TCP头——ftp头——数据                       IP头——TCP头——ftp头——数据
+了解:ip头中包含源ip地址——本机地址
+	 目的ip地址——广播地址					   			   目的ip和本机ip是否一致
+				  ||												  /\		
+				  \/                                                  ||
+网络接口和物理层                                           网卡收到数据帧判断目的mac地址
+		以太网头——IP头——TCP头——ftp头——数据——CRC校验码      如果匹配，去掉以太网头
+          ||
+		  \/
+	源mac地址:本机网卡的地址
+	目的mac地址:ff:ff:ff:ff:ff:ff
+
+广播数据帧封装好后，会在局域网中发送给所有的主机，所有的局域网中的主机，接收到数据帧后检查目的mac地址，所有主机发现目的mac地址为ff:ff:ff:ff:ff:ff，则将数据帧向上传递给了网络层，
+网络层再判断ip地址，发现是广播地址，再传递数据帧给传输层，如果某些主机发现本地没有进程使用目的端口，则数据会被丢弃。
+
+广播:
+发送端——服务器:
+1、创建套接字
+2、填充服务器地址结构(广播地址)
+3、使能广播权限
+int setsockopt(int sockfd, int level, int optname,const void *optval, socklen_t optlen);
+参数1:套接字
+参数2:SOL_SOCKET
+参数3:SO_BROADCAST广播的标志位
+参数4:非0值，可以使能设置的需求
+参数5:字节数
+4、发送数据
+
+接收端——客户端:
+1、创建套接字
+2、填充服务器(广播地址)的地址结构
+3、绑定广播地址
+4、接收数据
+
+	
+组播(多播):D类ip用于组播通信，这个ip就相当于是一个小组的编号
+发送端——服务器:
+1、创建套接字
+2、填充组播地址结构
+3、发送数据
+
+接收端——客户端:
+1、创建套接字
+2、填充组播地址结构 
+3、绑定组播地址结构
+4、将本机ip加入到组播地址中
+	setsockopt(sockfd,IPPROTO_IP,IP_ADD_MEMBERSHIP,);  man 7 ip 
+5、接收数据 
+
+域套接字通信:类似于有名管道，可以用于tcp，也可以用于udp，但是只能是本地通信
+b c d - l p s 
+以上三种只需要做到熟悉——了解
+
+
+sqlite数据库操作命令:
+.database:查询数据库文件名所在路径
+.tables:查询数据库文件中有哪些表
+.schema:查询表中的属性
+.quit:退出
+
+创建表:create table 表名称(属性1,属性2);
+将数据插入表中:insert into 表名称 values(内容1,内容2);
+查询表中数据:select * from 表名称;
+查询指定数据:select * from 表名称 where 属性名=内容;
+
+删除某行数据:delete from 表名称 where 属性名=内容;
+删除整张表:drop table 表名称;
+
+sqlite数据库操作接口:
+查询接口方法:sqlite.com
+int sqlite3_open(
+  const char *filename,   /* Database filename (UTF-8) */
+  sqlite3 **ppDb          /* OUT: SQLite db handle */
+);
+
+功能:打开数据库文件
+参数1:数据库文件名
+参数2:句柄
+	sqlite3 *ppdb;使用时&ppdb传递进去
+返回值:成功返回SQLITE_OK
+
+int sqlite3_exec(
+  sqlite3*,                                  /* An open database */
+  const char *sql,                           /* SQL to be evaluated */
+  int (*callback)(void*,int,char**,char**),  /* Callback function */
+  void *,                                    /* 1st argument to callback */
+  char **errmsg                              /* Error msg written here */
+);
+参数1:句柄
+参数2:一段空间地址，这段空间用来存放数据库命令
+参数3:回掉函数
+参数4:给回掉函数传参
+参数5:指向错误信息
+
+是否使用回掉函数，由命令决定。
+如果需要查询表中内容，可以选择使用回掉函数。
+int (*callback)(void*,int,char**,char**),
+参数1:接收exec的参数4
+参数2:表中列的个数
+参数3:表中的内容
+参数4:每列的列名称
+
+编译数据库相关源文件:
+源文件中需要添加#include <sqlite3.h>
+gcc sqlite.c -lsqlite3(库的名称)
+
+int sqlite3_get_table(
+  sqlite3 *db,          /* An open database */
+  const char *zSql,     /* SQL to be evaluated */
+  char ***pazResult,    /* Results of the query */
+  int *pnRow,           /* Number of result rows written here */
+  int *pnColumn,        /* Number of result columns written here */
+  char **pzErrmsg       /* Error msg written here */
+);
+参数1:句柄
+参数2:数据库命令
+参数3:用来操作表中的属性和内容
+参数4:获取行数(不包含属性名称那一行)
+参数5:获取列数
+参数6:报错
+
+void sqlite3_free_table(char **result);
+
+
+

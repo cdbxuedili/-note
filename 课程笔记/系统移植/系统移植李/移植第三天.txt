@@ -1,0 +1,399 @@
+有点难。从整体思路入手。
+
+u-boot是很多引导程序中的一种。
+分成很多版本:u-boot-2010   u-boot-2012  u-boot-2013  u-boot-2016 
+
+不能随便选择:对于嵌入式大型源码，尽量不要选择老版本，也不要选择新版本。
+1、老版本能使用的一些功能和当前需求不符合。
+2、新版不稳定——资料少。
+
+
+u-boot配置
+先了解u-boot顶层的一些常用目录:arch  board  drivers  common  include 
+为什么需要配置？为了从源码中选择出当前使用的平台需要编译的一部分代码。
+
+如何配置？
+查看README文件，对于所有的板子来说，默认的配置方式都类似于:make 板子名称_config 
+
+板子名称:board/samsung目录下有很多不同型号的芯片系列的对应目录(每个子目录都对应一个芯片系列)。其中smdkc100（s5pc100的模板）   origen(smdkc4412),是exynos4412的模板。
+
+cp origen farsight -arf 
+
+vi boards.cfg   以origen的信息为模板进行复制，将origen变成farsight
+
+make farsight_config 说明我们需要使用Makefile，farsight_config是Makefile文件的一个目标或者伪目标(配置的入口)
+
+在入口中最终执行了mkconfig脚本文件(实质性去完成配置功能)。
+
+完成的功能:
+第一部分:生成了3个软链接，针对不同的厂家或者架构具有通用性
+第二部分:在include目录下生成了一个config.mk，里面存放了5个变量(ARCH=arm CPU=armv7 BOARD=farsight VENDOR=samsung SOC=exynos)
+
+第三部分:在include目录下生成了config.h头文件,最终会被我们所使用的板级代码调用。
+
+
+u-boot编译:
+编译方法:make all 也可以直接使用make
+
+README文件告诉我们最终会生成u-boot.bin u-boot.srec u-boot.map System.map u-boot.lds 
+
+直接在板子上使用的是.bin文件 
+寻找u-boot.bin目标文件
+
+找到这个目标后发现，u-boot.bin依赖u-boot文件 
+所以再寻找u-boot目标文件
+
+u-boot目标依赖了一堆.o文件、u-boot.lds，使用链接器生成了u-boot 
+
+557 GEN_UBOOT = \                                                               
+558         UNDEF_LST=`$(OBJDUMP) -x $(LIBBOARD) $(LIBS) | \
+559         sed  -n -e 's/.*\($(SYM_PREFIX)_u_boot_list_.*\)/-u\1/p'|sort|uniq`;
+
+
+560         cd $(LNDIR) && $(LD) $(LDFLAGS) $(LDFLAGS_$(@F)) \
+561             $$UNDEF_LST $(__OBJS) \
+562             --start-group $(__LIBS) --end-group $(PLATFORM_LIBS) \
+563             -Map u-boot.map -o u-boot
+
+UNDEF_LST=`$(OBJDUMP) -x $(LIBBOARD) $(LIBS) | sed  -n -e 's/.*\($(SYM_PREFIX)_u_boot_list_.*\)/-u\1/p'`;
+
+sed配合 -n -e的作用是用来字符串替换的。
+
+sed -n -e 's/字符串1/字符串2' 字符串2替换掉字符串1
+.*\($(SYM_PREFIX)_u_boot_list_.*\)需要被替换的内容
+\(  \)都是转义
+.*\($(SYM_PREFIX)_u_boot_list_.*\) 简化后变成.*($(SYM_PREFIX)_u_boot_list_.*)
+SYM_PREFIX内容是空
+.*($(SYM_PREFIX)_u_boot_list_.*)又简化为.*(_u_boot_list_.*)
+
+
+\1是用来标记的，标记的内容是字符串1中的()内部的内容,所以\1标记了_u_boot_list_.*
+-u\1的作用是使用-u替换掉标记内容前面的部分，所以替换后是-u_u_boot_list_.*
+
+LNDIR = u-boot的顶层目录
+
+$(CROSS_COMPILE)ld ==》arm-none-linux-gnueabi-ld 
+
+193 LDFLAGS = $(PLATFORM_LDFLAGS)    PLATFORM_LDFLAGS内容是空
+
+$(LDFLAGS_$(@F))
+$(@F)是一个函数 《==》 $(notdir $@);  
+notdir的作用是去掉参数中的所属路径
+
+ MYCMD = gcc fun5.o -o $@
+  2 
+  3 fun5:fun5.o                                                                 
+  4 #   gcc fun5.o -o fun5
+  5     $(MYCMD)
+  6 clean:
+  7     rm *.o fun5
+所以$@代表的就是$(obj)u-boot
+$(notdir $@) 去掉了$(obj) 剩下u-boot
+所以LDFLAGS_$(@F) <==> LDFLAGS_u-boot
+
+190 LDFLAGS_u-boot = -pie -T $(obj)u-boot.lds $(LDFLAGS_FINAL) -Ttext $(CONFIG_SYS_TEXT_BASE)
+
+-pie -T $(obj)u-boot.lds 通知链接器链接时要使用u-boot.lds文件。
+332 LDFLAGS_FINAL = -Bstatic 静态链接
+
+256 CONFIG_SYS_TEXT_BASE = 0x43E00000（片外内存地址，说明u-boot.bin文件在片外内存中的初始加载地址为43e00000） 
+
+$$UNDEF_LST作用在Makefile中引用了脚本变量
+
+总结:链接过程就是使用链接器，以u-boot.lds为分段基础,u-boot.map为符号表基础，一堆.o文件提供分段信息和符号表信息，最终组合生成了u-boot文件 
+
+439 $(obj)u-boot.bin:   $(obj)u-boot
+440         $(OBJCOPY) ${OBJCFLAGS} -O binary $< $@
+调用objcopy命令来将u-boot文件格式转化为u-boot.bin文件，这个.bin文件最终会在开发板上运行。
+
+$<代表的是所有依赖文件中的第一个依赖文件
+$^代表的是所有不重复的依赖文件
+
+
+u-boot.lds中:
+arch/arm/cpu/armv7/start.o (.text*) 代码从arch/arm/cpu/armv7/start.o开始执行
+
+追踪代码时:顶层目录下执行ctags -R产生一个索引文件 
+
+如果需要从某个存储设备启动，则u-boot必须按照厂商规定格式来使用。
+u-boot-fs4412.bin包含 bl1.bin bl2.bin padding.bin u-boot.bin trustzone.bin
+
+u-boot上电启动时
+1、执行IROM中的一段厂商固化代码，叫做BL0(无源码，无.bin文件)
+	BL0的作用:关闭狗，关中断，关MMU...为了后续代码运行提供环境
+			  给外部存储设备提供启动方式
+			  检查BL1代码，如果检查通过则将存储设备中的BL1代码加载到IRAM中
+2、执行bl1代码(厂家提供的，有.bin文件)
+	BL1作用:为了BL2的运行提供环境
+3、执行BL2代码(我们自己编译出来的u-boot.bin前14K)
+
+自己的u-boot.bin包含两部分:前14K叫BL2，后面内容叫做BL3
+BL2以及BL3是什么功能？
+1、进入arch/arm/cpu/armv7/start.S 
+	39 _start: b   reset 跳转到reset标号
+
+2、
+126reset:                                                                                                
+127     bl  save_boot_params
+128     /*
+129      * set the cpu to SVC32 mode  设置CPU为管理模式
+130      */
+131     mrs r0, cpsr
+132     bic r0, r0, #0x1f
+133     orr r0, r0, #0xd3
+134     msr cpsr,r0
+
+3、
+147     /* Set vector address in CP15 VBAR register */
+148     ldr r0, =_start
+149     mcr p15, 0, r0, c12, c0, 0  @Set VBAR
+设置异常向量表地址，通知arm核异常入口为_start
+
+4、154     bl  cpu_init_cp15  
+			关闭MMU和缓存
+			
+MMU叫做内存管理单元:进行虚拟地址和物理地址映射的。
+
+5、155     bl  cpu_init_crit
+				||
+				\/
+			331     b   lowlevel_init  进入board/samsung/origen/lowlevel_init.S 
+					    系统时钟初始化
+						片外内存初始化
+					上电启动前，u-boot-fs4412.bin应该在SD卡/EMMC中存放，启动后需要在内存中运行这个.bin文件，所以必须要初始化内存(u-boot-fs4412.bin文件可能大于256K)
+
+6、回到cpu_init_crit,继续执行
+	158     bl  _main   进入arch/arm/lib/crt0.S
+	设置栈指针
+	执行board_init_f   进入arch/arm/lib/board.c
+
+	
+7、 回到arch/arm/lib/crt0.S
+	ldr sp, [r8, #GD_START_ADDR_SP] /* r8 = gd->start_addr_sp */
+	126     bic sp, sp, #7  /* 8-byte alignment for ABI compliance */
+	127     ldr r8, [r8, #GD_BD]        /* r8 = gd->bd */
+	128     sub r8, r8, #GD_SIZE        /* new GD is below bd */
+	129 
+	130     adr lr, here  注意:here标号一会还要回来
+	131     ldr r0, [r8, #GD_RELOC_OFF]     /* lr = gd->start_addr_sp */
+	132     add lr, lr, r0
+	133     ldr r0, [r8, #GD_START_ADDR_SP] /* r0 = gd->start_addr_sp */
+	134     mov r1, r8              /* r1 = gd */
+	135     ldr r2, [r8, #GD_RELOCADDR]     /* r2 = gd->relocaddr */
+	136     b   relocate_code
+
+8、 进入arch/arm/cpu/armv7/start.S
+	relocate_code   u-boot.bin文件的自搬移
+	70 ENTRY(relocate_code)
+	171     mov r4, r0  /* save addr_sp */
+	172     mov r5, r1  /* save addr of gd */                                       
+	173     mov r6, r2  /* save addr of destination */
+	...............
+	228 relocate_done:
+	229 
+	230     bx  lr
+
+9、回到here标号处: 在arch/arm/lib/crt0.S
+	137 here:
+	138 
+	139 /* Set up final (full) environment */                                                                 
+	140 
+	141     bl  c_runtime_cpu_setup /* we still call old routine here */
+	142 
+	143     ldr r0, =__bss_start    /* this is auto-relocated! */
+	144     ldr r1, =__bss_end__    /* this is auto-relocated! */
+	145 
+	146     mov r2, #0x00000000     /* prepare zero to clear BSS */
+
+10、167     ldr pc, =board_init_r    /arch/arm/lib/board.c
+			
+11、	702     for (;;) {
+		703         	 main_loop();                                                                                  
+		704     }
+12  main_loop函数功能:
+	435     s = getenv ("bootdelay");                                                                       436     bootdelay = s ? (int)simple_strtol(s, NULL, 10) : CONFIG_BOOTDELAY;
+	为了获取bootdelay变量的内容，并且判断如果倒计时时间内被打断则进入u-boot交互模式
+	如果没有被打断则执行
+	461         s = getenv ("bootcmd");获取u-boot环境中的bootcmd变量内容，变量存放了
+	tftp 41000000 uImage\;tftp 42000000 xxx.dtb\;bootm 41000000 - 42000000
+	一旦这些命令执行后则后续控制权交给内核了。
+
+	
+如果在IRAM中执行BL2时:
+1、设置管理模式
+2、设置异常向量表，通知arm核异常向量表的位置
+3、关闭MMU和缓存
+4、初始化系统时钟以及片外内存
+5、设置栈指针
+6、执行board_init_f  将emmc中的u-boot.bin拷贝到片外内存中(最初的加载地址在43e00000)
+到board_init_f为止，bl2的工作就完成了。
+
+如果已经执行过BL2，再执行u-boot.bin时:
+1、设置管理模式
+2、设置异常向量表，通知arm核异常向量表的位置
+3、串口初始化
+4、设置栈指针
+5、再次执行board_init_f  计算出需要重定位的环境信息
+	462     gd->relocaddr = addr; 重定位的高位地址
+	463     gd->start_addr_sp = addr_sp;重定位后栈指针
+	464     gd->reloc_off = addr - _TEXT_BASE; 偏移量
+6、将重定位需要的信息存放到寄存器中。
+7、u-boot.bin自搬移
+8、实现BSS段的清零，为了c运行来做准备
+9、执行board_init_r，初始化一堆工作
+
+
+移植u-boot的过程
+第一步:配置 
+1、cp board/samsung/origen board/samsung/fs4412 -arf 
+2、进入board/samsung/fs4412,修改origen.c为fs4412.c  origen_setup.h改为fs4412_setup.h 
+3、进入到顶层目录下的boards.cfg文件，
+复制origen               arm     armv7       origen      samsung    exynos
+变成fs4412               arm     armv7       fs4412      samsung    exynos
+4、顶层目录下执行:make fs4412_config
+
+第二步:编译 执行make 
+出现/home/linux/source/u-boot-2013.01/include/config.h:10:28: fatal error: configs/fs4412.h: No such file or directory
+解决方法:cp include/configs/origen.h include/configs/fs4412.h 
+
+make fs4412_config 重新配置
+再执行make 
+mem_setup.S:26:26: fatal error: origen_setup.h: No such file or directory
+vi board/samsung/fs4412/mem_setup.S 将origen_setup.h改成fs4412_setup.h 
+vi board/samsung/fs4412/lowlevel_init.S 将origen_setup.h改成fs4412_setup.h 
+vi board/samsung/fs4412/Makefile 将origen.o 改成fs4412.o 
+再make，成功
+
+开始验证：
+1、cp u-boot.bin /tftpboot 
+2、启动开发板，在串口中执行tftp 43e00000 u-boot.bin 
+	注意:必须是43e00000,链接器指定的。
+3、go 43e00000
+发现没有看到u-boot正常启动，现象是:## Starting application at 0x43E00000 ...
+
+解决方式？
+进入到board/samsung/lowlevel_init.S,注释掉89     bl uart_asm_init下面的
+/*bl tzpc_init*/
+
+再make，再调试。
+
+在u-boot的交互模式中，如何修改名称(默认是ORIGEN #)
+vi include/configs/fs4412.h 
+104 #define CONFIG_SYS_PROMPT       "ORIGEN # "，将ORIGEN改成你想要的名字
+
+既然u-boot已经启动了，所以需要下载内核镜像以及设备树文件。
+通过ping命令来验证一下网络是否联通。
+出现如下错误:
+Unknown command 'ping' - try 'help'
+进入到common目录下搜索ping关键字:grep "ping" ./*.c -n
+找到common/cmd_net.c +277行
+
+276 #if defined(CONFIG_CMD_PING)                                                
+277 static int do_ping(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
+278 {
+	.......
+}
+说明ping命令已经实现了，只不过没有调用这个函数。
+
+解决方式:
+vi include/configs/fs4412.h 将85 #undef CONFIG_CMD_PING改成85 #define CONFIG_CMD_PING
+重新编译调试
+出现很多函数未调用。原因是我们的板子没有调用裸机网卡驱动。
+
+想办法调用网卡驱动:
+准备工作:1、你用的什么网卡？dm9000网卡
+		 2、了解网卡的硬件信息
+			看原理图BUF_B_Xm0DATA0 - 15 一共16根数据线
+			CMD引脚代表的是一根地址线(数据和地址的控制线，可以选择使用为地址线也可以选择使用为数据线)
+			当CMD引脚为0时，16根数据线专门传递地址信息
+			当CMD引脚为1时，16根数据线专门传递数据信息
+		    
+			CS引脚(chip select)——片选信号,网卡和cpu之间使用SROM总线，在这个总线上可以连接多个设备，如何选择出正在使用哪个设备呢？使用片选信号。
+			
+vi include/configs/fs4412.h 将#undef CONFIG_CMD_NET改成#define CONFIG_CMD_NET
+编译调试
+发现:
+Net:   Net Initialization Skipped
+No ethernet found. 没有找到以太网卡(dm9000)
+
+arch/arm/lib/board.c
+667     eth_initialize(gd->bd);
+			||
+			\/
+		312     if (board_eth_init != __def_eth_init) { 
+		313         if (board_eth_init(bis) < 0)                                        
+		314             printf("Board Net Initialization Failed\n");
+		315     } else if (cpu_eth_init != __def_eth_init) {
+		316         if (cpu_eth_init(bis) < 0)
+		317             printf("CPU Net Initialization Failed\n");
+		318     } else
+		319         printf("Net Initialization Skipped\n");
+		320 
+		321     if (!eth_devices) {
+		322         puts("No ethernet found.\n");
+		323         bootstage_error(BOOTSTAGE_ID_NET_ETH_START);
+		324     }
+我们的移植几乎全是涉及到外部设备的而不是CPU的，所以我们需要board_eth_init != __def_eth_init
+
+需要board_eth_init函数接口，参考别的平台的代码。
+grep "board_eth_init" * -Rn
+我找的是board/samsung/smdk2410/smdc2410.c,在这个文件内部:
+134 #ifdef CONFIG_CMD_NET
+135 int board_eth_init(bd_t *bis)
+136 {
+137     int rc = 0;
+138 #ifdef CONFIG_CS8900
+139     rc = cs8900_initialize(0, CONFIG_CS8900_BASE);                          
+140 #endif
+141     return rc;
+142 }
+143 #endif
+
+在board/samsung/fs4412/fs4412.c的最后一行下面添加:
+int board_eth_init(bd_t *bis)
+{
+	return dm9000_initialize(bis);//此函数在drivers/net/dm9000x.c中
+}
+编译调试出现如下错误:
+/home/linux/source/u-boot-2013.01/board/samsung/fs4412/fs4412.c:115: undefined reference to `dm9000_initialize'
+进入drivers/net/Makefile，找到:38 COBJS-$(CONFIG_DRIVER_DM9000) += dm9000x.o 
+我们自己需要在include/configs/fs4412.h中倒数第二行定义CONFIG_DRIVER_DM9000这个宏
+
+编译调试，又发现dm9000x.c:156:3: error: 'DM9000_DATA' undeclared (first use in this function) 错误
+
+解决方法:在顶层目录grep "DM9000_DATA" * -Rn 
+随便找一个文件，比如是include/configs/scb9328.h,有如下用法:
+237 #define CONFIG_DRIVER_DM9000        1
+238 #define CONFIG_DM9000_BASE      0x16000000
+239 #define DM9000_IO           CONFIG_DM9000_BASE
+240 #define DM9000_DATA         (CONFIG_DM9000_BASE+4)
+
+以上4行宏定义注意基地址需要看我们自己的硬件信息。
+进入到我们自己的include/configs/fs4412.h,添加如下信息
+158 #define CONFIG_DRIVER_DM9000  1 代表要操作数据
+159 
+160 #define CONFIG_DM9000_BASE      0x5000000  芯片手册第三章BANK1地址
+161 #define DM9000_IO               CONFIG_DM9000_BASE
+162 #define DM9000_DATA             (CONFIG_DM9000_BASE + 4)
+编译调试:ping ubuntu的ip地址
+出现错误: ERROR: `ipaddr' not set
+	解决方法:setenv ipaddr 自己指定一个ip地址
+注意:不能保存
+
+继续ping 172.25.1.254
+出现 ERROR: `ethaddr' not set	
+需要设置网卡的mac地址
+setenv ethaddr 00:0c:29:23:ec:b6(自己可以更改网卡地址)
+
+发现ping通了，成功了。
+
+继续还要使用tftp下载内核镜像以及设备树
+tftp 41000000 uImage 
+*** ERROR: `serverip' not set
+自己设置serverip环境变量:setenv serverip 172.25.1.254(我自己的,你要改)
+
+设置bootargs环境变量
+最后执行bootm 41000000 - 42000000
+
+
+

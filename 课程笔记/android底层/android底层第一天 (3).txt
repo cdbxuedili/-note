@@ -1,0 +1,346 @@
+【1】android系统
+   
+   google  2.6
+   
+   linux系统
+   
+   linux内核+文件系统
+   linux内核： GPL
+      存储管理、CPU和进程管理、文件系统(vfs)、设备管理和驱动、
+	  网络通信，以及系统的初始化（引导）、系统调用
+	
+
+  busybox-------->rootfs------>打包成某一种镜像	
+
+    ramdisk(内存盘)
+ linux文件系统的分类：
+    磁盘的文件系统
+      EXT2,3,4,cramfs，yaffs，jeffs2,
+	  EMMC,SD:ext2,3,4
+	        ext3相比ext2  日志的功能
+			ext4相比ext3:   数据结构优化
+			
+	  nand  flash:cramfs,yaffs,jeffs2  
+	    
+    网络文件系统
+      nfs
+     特殊的文件系统
+      proc  sysfs，tmpfs，ramfs
+	  proc:和进程
+	       proc -------->/proc
+	       每创建一个进程,在proc目录下创建以进程号的命名的目录，这个目录
+		   中包含进程的信息。
+		   
+	  sysfs:------>sys 
+            内核的数据结构体及其属性导出到用户空间的方法。
+             class_create    sysfs函数    /sys
+             device_create			 
+	  
+	     驱动给应用程序提供接口有两种方式：
+		     字符设备驱动的框架：   
+			             fops
+			 sysfs:
+			         属性文件，属性文件对应的读写方法
+					      store
+						  show
+						  
+			tmpfs:----->tmp      ramfs(不占用磁盘空间的大小，内存) 
+                  临时的文件			
+						  
+	  
+手机通常三个分区：
+    第一个分区：boot
+	                bootloader
+					
+					mmc0:0
+	第二分区：rootfs
+	               文件系统 
+                     dev  etc  home  boot
+                                          zImage  dtb	
+								
+                    mmc0:1
+					
+	/media/boot  
+          /rootfs 
+		  
+		  sudo  cp   u-boot.bin   /media/boot
+		  sudo cp    zImage       /media/rootfs/boot 
+		  
+		  	  
+					
+    第三分区：
+         用户的数据
+
+
+    /dev/sda
+       第一个设备
+        sda  sda1  sda2 
+       sda1 第一个设备的第一个分区	
+    /dev/sdb
+          sdb1 sdb2  sdb3  sdb4  sdb5 
+		  sdb5:第二个设备第一个逻辑分区
+		  
+
+		  
+andorid系统：文件系统
+linux系统：内核+文件系统(rootfs)	c语言
+                        system:
+                            android文件系统挂载到这个目录（java）
+							
+ java： 
+ 
+ 封装：向下操作硬件，向上为java程序提供接口
+       
+    
+ /dev/led
+ /dev/fb0
+  /dev/video0
+ 
+ android驱动= linux驱动+封装
+ 
+ 【2】android系统框架分层：
+     1、应用程序
+	 2、框架层（为应用程序提供接口）
+     3、库，java运行环境（dalvik 虚拟机）
+	      java首先访问库，找到库中的函数，函数操作硬件
+		  给应用程序提供接口，统一两者的数据类型
+		  
+		  c/c++------->.so
+		  
+	 4、内核
+
+  
+	 
+	 
+	 
+	 
+	 
+	lcd常见的接口：
+	   TTL(RGB)：逻辑 5v  1  逻辑  0v  0 
+           单通道6bit，单通道8bit
+                 18根线      24根数据线
+				 
+				 
+		TTL-----VGA-->TTL :		 
+		
+		
+		LVDS:
+		    LVDS具有高速、超低功耗、低噪声和低成本的优良特性
+		    
+				 
+	   lvds:
+	   
+	   MIPI:
+	       lvds+控制命令
+		   
+		   
+	
+     LED:
+          GPIO
+     BEEP:
+          GPIO	
+     DS18B20:
+          gpio
+	 红外：
+          gpio
+     传感器：
+            IIC
+	 camera:
+	        IIC
+			SPI
+			MIPI: 
+			    IIC 处理时序
+				双目摄像头
+				四目
+				八目
+	      usb：2.0  3.0
+		    
+	 FLASH:
+           SPI 
+     
+     触摸屏：
+         IIC 
+     usb:
+          usb 
+		  
+ 【3】fspad733
+     SOC:A33
+     VENDOR:ALLWINER
+	 ARCH:arm
+	 cpu:arm cortex_a7     			
+	 内存：1G
+	 
+【4】开发环境搭建
+    1、安装烧写工具
+	2、打开平板，进入到android界面，将usb模式打开，
+       提示安装usb驱动，找到usb驱动所在的目录，如果安装不
+       成功，请下载豌豆荚或者其他可以安装的驱动的工具，自行
+       安装驱动。
+	3、将fastboot目录拷贝到windows系统的某个根目录，注意不能有中文。
+    
+    4、打开windows的命令行，进入到fastboot目录
+       win+R  cmd
+	5、远程登录
+	     adb  shell
+		 
+
+   ubuntu:
+       1、插上usb后，让ubuntu识别usb设备。
+           在vmware workstation的右下角会出现usb设备的图标，
+           点击连接。
+       2、安装adb  命令
+         sudo  apt-get install  android-tools-adb
+		     可以通过lsusb查看是否识别到硬件信息。
+			 Bus 001 Device 002: ID 18d1:4ee7 Google Inc. 
+			Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+			Bus 002 Device 004: ID 0e0f:0008 VMware, Inc. 
+			Bus 002 Device 003: ID 0e0f:0002 VMware, Inc. Virtual USB Hub
+			Bus 002 Device 002: ID 0e0f:0003 VMware, Inc. Virtual Mouse
+			Bus 002 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+  
+       3、adb  shell
+            如果错误
+             echo  18b1  >/home/linux/.android/adb_usb.ini 
+             adb  kill-server
+             sudo  adb start-server
+             adb  device  查看是否识别了硬件信息
+			 
+         adb  shell
+		 
+   如何上传文件
+       1.将上传的文件放到fastboot目录（windows）。
+	    
+	   adb  push  文件的名字     目录名	
+		 
+	    linux@ubuntu:~$ adb push  1.c   /system
+		failed to copy '1.c' to '/system/1.c': Read-only file system
+		linux@ubuntu:~$ mount
+
+		  adb  shell  
+		 
+		  mount  -o  remount  /system  
+		  exit  
+
+		  adb  push 1.c   /system
+  	  
+ 【4】配置交叉编译器
+     sudo  cp      fspad_733/lichee/out/sun8iw5p1/android/common/buildroot/external-toolchain  ~  -arf
+	
+	 sudo  vi  /etc/bash.bashrc 
+	 
+        export  PATH=$PATH:/home/linux/external-toolchain/bin 
+		
+
+    source  /etc/bash.bashrc 
+	
+	 
+	 arm-linux-gnueabi-gcc  test.c  
+	 
+	 adb  push a.out  /data  
+	 
+	 ./a.out  
+	  
+	  no such  or  dir 
+	  
+	  -static 
+	  
+【5】android系统编译
+    androidL：android源码
+	
+	lichee:bootload  kernel  rootfs  tools 
+	
+	
+	cd   lichee:
+	   ./build.sh 
+	   
+	androidL:
+	    设置环境
+        source  build/envsetup.sh 
+		
+		选择目标：
+		 lunch
+		 
+		 编译：
+		   make
+		       system.img 
+			   
+		   uboot  zImage  ramdisk   system.img 
+		   
+		 打包  
+		    pack  
+			pack  -d    打印信息
+		/home/linux/fspad_733/lichee/tools/pack/sun8iw5p1_android_fspad-733_uart0.img	
+		   
+ 烧写：
+ 
+ 
+ 
+【4】uart,spi,IIC的区别？
+   线：
+       uart：tx，rx，gnd
+	        
+			白色，黑色，绿色，红色
+			tx    gnd   rx     vcc
+	   spi：四根线
+	      cs，sclk，MISO,MOSI
+		IIC:2根线
+           SCLK,SDAT
+	传输速率：
+       usart：
+              4800.9600，115200	  
+       IIC: 标准模式100k,快速模式400k。
+	   SPI: 48M
+	   
+	同步和异步：
+	    同步交互:指发送一个请求,需要等待返回,然后才能够发送下一个请求
+	    异步：在发送一个请求是，不需要等待返回，发送下一个请求
+		
+		uart：异步
+		IIC:同步 
+		SPI:同步信号
+    半双工和全双工：
+	   单工：
+	     数据只在一个方向上传输 
+		 半双工：数据可以在两个方向上传输，但是同一时刻只能一个方向传输
+		 全双工：
+		      数据可以同时在两个方向上传输  
+			  
+			  
+	    USART:全双工 
+		spi：全双工 
+		IIC:半双工  
+		
+
+IIC 时序？
+
+java 访问c   jni     	
+     	   
+		   
+			
+   
+    
+	   
+
+	  
+	  
+	  
+   	
+        	
+	   
+    	   
+ 	 
+	
+
+    	 
+        
+	 
+	 
+	     
+							
+		  
+   		  
+			 
+					  
+	  
+	  
+           

@@ -1,0 +1,265 @@
+第一天:驱动模块的使用
+第二天和第三天:字符设备框架
+第四天:platform总线的使用方法
+第五天:设备树的使用，和设备树相关的语法和接口，内核中的IO模型
+
+第六天:蜂鸣器驱动，中断操作，按键驱动，adc驱动
+第七天和第八天:i2c总线协议，i2c总线的内核接口，mpu6050驱动
+第九天:输入子系统的使用
+第十天:sysfs  leds子系统来点灯，并且还可以控制灯的亮度
+
+驱动driver:驱使硬件工作的一段代码——各种结构体和各种函数
+老司机开车:司机是驱动，车是硬件  所有的司机都可以开所有车型么？
+		   同种(不同厂家的)设备，所有的驱动代码都可以操作么？不一定，移植性
+		   驱动是硬件么？软件
+		   a.out 
+
+一、模块
+1、什么是模块——在内核中可以任意添加或者删除的一段代码
+	make menuconfig
+    ()
+	[]
+	<>  选为*  未选中  选为M
+	选为*时，代码会直接编译到内核镜像uImage中，在使用uImage过程中，编译进去的代码不可以被删除的。
+	
+	选为M，代码会以模块的形式编译，不会直接放在uImage中。当我们需要使用模块时调用命令将模块加载到uImage中，不使用时再调用命令将模块从uImage中卸载掉。
+	
+	如何编译模块？make modules
+	
+2、模块的使用范围:驱动、文件系统、网络协议栈
+
+3、模块和可执行程序的区别
+					 可执行程序             模块
+		运行空间    用户和内核空间         内核空间 
+		入口函数      main                 加载函数
+		调用的接口  库函数/system call     内核函数
+		空间释放    自动释放               手动释放
+		
+4、模块的操作命令
+	xxx.ko  模块
+	xxx     模块的名称
+	
+	加载模块？insmod xxx.ko 
+	卸载模块？rmmod xxx 
+	查询模块？lsmod 
+	模块查询信息？ modinfo
+	卸载时如果使用的文件系统是新的，需要在/lib下创建modules目录，
+	在/lib/modules下创建3.14.0目录
+	
+	
+	dmesg 将内核的打印信息显示到终端上
+	sudo dmesg -c 清除内核打印信息
+	
+5、模块的三要素——模块的声明、模块的加载、模块的卸载
+模块的声明:只需要记住，我们是没有资格去研究它。
+		   为了告诉操作系统，当前的模块使用哪种协议。GPL协议、BSD协议
+		   
+		   MODULE_LICENSE("GPL");//必须是在源码的全局位置，和加载函数以及卸载函数的位置关系没有影响
+		   模块声明如果省略则在加载时会出错，提示:污染了内核
+		   
+模块的加载函数:
+	默认加载函数
+		int init_module(void);
+		注意:
+		1、需要我们在驱动中自己定义
+			int init_module()  定义方法
+			{
+				return 0;
+			}
+		2、定义加载函数时形参void一定不能省略
+			int init_module(void)  定义方法
+			{
+				return 0;
+			}
+	自定义加载函数
+		297 #define module_init(initfn)                 \
+		298     static inline   initcall_t __inittest(void)       \
+					   内联函数	返回值类型     函数名 
+		299     { return initfn; }  函数体                \
+		300     int init_module(void) __attribute__((alias(#initfn)))
+					默认加载函数      编译器所持有的可以操作属性的一个关键字
+									  当前编译器要操作的就是alias属性，也是取别名。
+									  给init_module取别名，别名叫做initfn
+		
+		返回的initfn的类型一定和initcall_t的类型一致。
+		
+		typedef int (*initcall_t)(void);《==》typedef int (*)(void)  initcall_t 
+													  函数指针类型   函数指针类型的别名
+													  
+		int (*initcall_t)(void);《==》 int (*)(void) initcall_t
+									   函数指针类型   函数指针变量名
+									   
+		也就是说initfn应该是一个函数名。
+		
+		
+模块的卸载函数:
+	默认卸载函数
+	void cleanup_module(void);
+	注意:
+	1、需要我们在驱动中自己定义
+	2、形参void不能省略
+	
+	void cleanup_module(void)
+	{
+		return;
+	}
+	
+	自定义卸载函数
+	
+正常情况下:几乎使用的都是自定义的	
+
+6、如何去编译一个模块文件
+内部编译:
+1）拷贝模块源码到内核中的指定目录下——drivers/misc
+2）修改drivers/misc/Kconfig，添加:
+	config DEMO
+		tristate "选项名称"
+3）修改drivers/misc/Makefile，添加:
+	obj-$(CONFIG_DEMO) += demo.o 
+4）回到顶层目录执行make menuconfig,找到添加的选项，选为M
+5）执行make modules 
+
+外部编译:你的驱动源码一定不能在内核源码目录下
+1、通过自己的Makefile引用到内核中的模块编译方法
+2、通知内核的编译方法我们需要参与编译的源文件叫什么
+
+如何去实现这个Makefile？ 
+内核顶层目录的Makefile:
+1248 # The following are the only valid targets when building external modules.
+1250 # make M=dir clean     Delete all automatically generated files
+1251 # make M=dir modules   Make all modules in specified dir
+			M属于在命令行定义
+			这里的dir应该是一个驱动源码的所在绝对路径
+			
+modules肯定是一种目标文件，这个目标文件在顶层Makefile中。
+1276 modules: $(module-dirs) 依赖文件                 
+1277     @$(kecho) '  Building modules, stage 2.';
+1278     $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost
+
+1271 module-dirs := $(addprefix _module_,$(KBUILD_EXTMOD))
+					  添加前缀   前缀
+结果:  _module_$(KBUILD_EXTMOD)
+
+  78 ifeq ("$(origin M)", "command line")                                       
+  79   KBUILD_EXTMOD := $(M) 最终的结果
+  80 endif
+	
+外部编译方法具体实现过程:
+  1 PWD = $(shell pwd)
+  2 KERNEL_DIR = /home/linux/linux-3.14/
+  3 
+  4 #start:
+  5 modules:
+  6     #cd ~/linux-3.14/ 
+  7     make -C $(KERNEL_DIR) M=$(PWD) modules
+  8 
+  9 clean:
+ 10     make -C $(KERNEL_DIR) M=$(PWD) clean
+ 11 obj-m += demo.o
+ 
+ 进入自己Makefile
+ 进入内核顶层的Makefile
+ 进入scripts/Makefile.modpost——包含了自己的Makefile
+ 因为内核会再一次的调回自己的Makefile，为了避免自己的Makefile功能重复使用，需要使用到KERNELRELEASE
+ KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
+ 
+以下才是严谨的用法:
+  1 ifeq ($(KERNELRELEASE),)
+  2 PWD = $(shell pwd)
+  3 KERNEL_DIR = /home/linux/linux-3.14/
+  
+  6 modules:
+  8     make -C $(KERNEL_DIR) M=$(PWD) modules
+  9 
+ 10 clean:
+ 11     make -C $(KERNEL_DIR) M=$(PWD) clean
+ 12 else
+ 13 obj-m += demo.o
+ 14 endif
+ 
+7、模块的符号表导出
+符号表:函数名或者变量名
+导出符号的作用就是为了给其他模块使用
+
+使用过程:假设有B模块要使用A模块中的符号
+1）编译模块A，加载模块A
+2）拷贝模块A中的Module.symvers给模块B
+3）编译模块B，加载模块B
+
+卸载的过程和加载的过程相反
+符号中出现static不影响符号表的导出和使用
+
+导出符号表的宏函数:EXPORT_SYMBOL();
+					EXPORT_SYMBOL_GPL();
+8、模块的外部传参
+112 #define module_param(name, type, perm)              \                       
+113     module_param_named(name, name, type, perm)
+
+参数1:外部传递的参数名称
+参数2:类型
+106  * Standard types are:
+107  *  byte, short, ushort, int, uint, long, ulong
+108  *  charp: a character pointer
+109  *  bool: a bool, values 0/1, y/n, Y/N.
+110  *  invbool: the above, only sense-reversed (N = true).
+111  */
+参数3:相关文件的权限，一定不要出现7权限，建议不要出现写权限
+
+执行方法:sudo insmod demo.ko value=100
+参数3会以文件名的方式出现在:/sys/module/模块名/paramters/
+
+使用模块来点灯:
+模块声明
+
+模块加载函数
+{
+	点亮led灯——在四个灯中任意选择一个点亮
+		配置GPX2CON和GPX2DAT寄存器
+}
+
+模块卸载函数
+{
+	熄灭led灯
+}
+
+
+ 64 static inline u32 readl(const volatile void __iomem *addr)                  
+ 65 {
+ 66     return __le32_to_cpu(__raw_readl(addr));
+ 67 }
+功能:从寄存器中读取数据
+参数:寄存器对应的虚拟地址
+返回值:读取到的数据
+
+#define writel(b,addr) __raw_writel(__cpu_to_le32(b),addr)
+功能:将数据写入到寄存器中
+参数1:需要写入的数据
+参数2:寄存器虚拟地址
+
+
+
+内核延时函数
+udelay:微妙延时 
+mdelay：毫秒延时
+头文件：#include<linux/delay.h>
+功能：在内核中延时一段时间
+
+用法：udelay（时间）    mdelay（时间）
+
+
+物理地址转换为虚拟地址函数ioremap
+头文件 #Include<asm/io.h>
+
+功能：物理地址转化为虚拟地址（MMU）
+
+用法：ioremap(物理地址)
+
+返回值：返回一个与物理地址相对应的虚拟地址
+
+
+ARRAY_SIZE(数组名)
+
+求数值元素个数
+
+
+

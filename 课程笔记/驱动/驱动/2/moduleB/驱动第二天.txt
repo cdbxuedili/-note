@@ -1,0 +1,254 @@
+模块:三要素，加载函数、卸载函数、模块声明
+
+模块声明:MODULE_LICENSE("GPL");
+加载函数:
+	默认加载函数   int init_module(void)
+	自定义加载函数	module_init(自定义函数名);
+					自定义函数名原型:int xxx(void)
+					
+卸载函数:
+	默认卸载函数  void cleanup_module(void)
+	自定义加载函数  module_exit(自定义函数名);
+					自定义函数名原型:void yyy(void)
+					
+实现模块的基本过程:
+第一种情况:
+MODULE_LICENSE("GPL");
+
+int init_module(void)
+{
+	功能
+	return 0;
+}
+
+void cleanup_module(void)
+{
+	功能
+	return;
+}
+
+第二种:
+MODULE_LICENSE("GPL");
+
+int xxx_init(void)
+{
+
+}
+module_init(xxx_init);
+
+void xxx_exit(void)
+{
+
+}
+module_exit(xxx_exit);
+
+编译:
+内部编译
+	
+外部编译
+1、自己写Makefile，然后引用内核顶层Makefile
+2、通知内核Makefile需要编译成模块的源文件是哪个
+
+ifeq ($(KERNELRELEASE),)
+KERNEL_DIR ?= /home/linux/drivers/linux-3.14/
+PWD ？= $(shell pwd)
+start:
+	make -C 内核顶层路径 M=$(PWD) modules 
+	
+end:
+	make -C 内核顶层路径 M=$(PWD) clean  
+else
+obj-m += xxx.o 
+endif
+
+模块传参
+vim -t module_param   选择3
+
+module_param(name, type, perm)
+参数1:传参指定的参数名称
+参数2:传参指定的数据类型
+	106  * Standard types are:                                                      
+	107  *  byte, short, ushort, int, uint, long, ulong
+	108  *  charp: a character pointer
+	109  *  bool: a bool, values 0/1, y/n, Y/N.
+	110  *  invbool: the above, only sense-reversed (N = true).
+参数3:一个文件的权限
+	如果成功会在/sys/module/以模块文件命名的目录/paramters/以name命名的文件
+
+module_param_string(name, string, len, perm)  
+参数1:外部使用的一个变量名，比如insmod xxx.ko name=内容
+参数2:字符型数组名	
+参数3:数组的大小
+参数4:生成文件的权限
+
+module_param_array(name, type, nump, perm)
+参数1:可以是任意类型的数组名
+参数2:指定当前数组使用的类型
+参数3:是一个变量的地址，用来获取实际传递的数据个数
+参数4:权限
+
+执行方法:sudo insmod demo.ko value=12 p="hello" mystr="world" array=1,2,3
+
+模块的符号表导出
+符号表:一堆符号。
+符号:函数名或者静态变量名
+什么是导出？一个文件中实现的功能给其他代码使用。
+
+导出方法:
+1、模块A
+	glo_value = 100;
+	EXPORT_SYMBOL_GPL(glo_value);//需要导出符号glo_value
+	
+2、编译模块A生成demoA.ko文件
+   insmod demoA.ko（当前模块的符号要想被其他模块调用，此模块必须先加载）	
+  
+3、cp 模块A/Module.symvers 到 模块B中
+
+4、模块B中使用 extern int glo_value;引用其他模块的符号
+
+5、编译模块B
+
+6、加载模块B
+
+目的:内核中某些函数接口如果需要被其他文件引用，需要在函数的调用下面使用EXPORT_SYMBOL_GPL()导出符号表，还需要编译内核镜像。
+一个函数的返回值位置如果存在static，对符号表导出没有影响。
+
+驱动分类:
+1、字符设备驱动
+	以字节为单位来进行数据的传输。设备文件类型c
+	常见的字符设备:键盘、鼠标
+2、块设备驱动
+	以块为单位进行数据传输，每块的大小一般是512字节(也可能是大于512字节的2的n次方)
+	设备文件类型是b
+	常见的块设备:硬盘、nandflash、emmc
+3、网络设备驱动：
+	没有特定类型的文件名，没有特定的接口——不同的网络设备都会有自己独立的接口。
+	
+注意:led肯定不是网络设备，但是不能完全明确到底是字符设备还是块设备，所以在驱动模型中对于这种模糊不清的设备有另外一种归类——混杂设备。
+
+到底使用的是哪种设备，主要看内核中调用的哪些接口。
+
+字符设备框架(整体逻辑以及具体函数接口，都必须掌握):
+用户空间       程序(系统调用、标准库)
+								||
+								\/
+							   C库
+———————————————————————||———————||——————————
+内核空间			   \/		\/
+					   系统调用源码
+							||
+							\/
+						虚拟文件系统(描述文件——字符设备文件或者块设备文件)
+							||
+							\/
+						   驱动
+————————————————————————————||————————————
+硬件						\/
+						  具体硬件
+
+1、模型中需要通过文件来操作驱动，文件如何能识别到具体驱动？文件和驱动需要匹配。
+2、通过什么方式匹配文件和驱动？设备号
+3、什么是设备号？32位的无符号整数。
+	设备号包含两部分:前12位是主设备号、后20位是次设备号
+	
+4、主次设备号的作用？
+	主设备号用来标记一种设备的。
+	次设备号用来标记一种设备中的不同设备。
+	
+	比如开发板有4个led，主设备号就是用来表示led所有设备的。
+	次设备号会在led这些设备中区分出不同的led灯。
+
+5、一定要注意:设备号 = 主设备号和次设备号的组合
+   如何生成设备号?
+   1、devno = 主设备号 << 20 | 次设备号    这种方式了解就可以
+   2、devno = MKDEV(主设备号,次设备号); //申请设备号
+   
+  
+6、设备文件包含设备号信息的，但是如何产生设备文件？
+	(1)、mknod "/dev/设备文件名" 设备文件类型  主设备号  次设备号 
+	(2)、使用函数接口来产生。暂时不要关心
+
+	注意:使用主设备号时，避免和其他设备文件冲突，所以如果是在ubuntu中创建，则进入
+	/proc/devices文件中。这个文件中存放了一些种类的设备占用了哪些主设备号。
+
+	如果在开发板中创建，进入Documentation/devices.txt文件，只需要保证主设备号在260以上
+	
+	sudo mknod "/dev/demo" c 250 0
+
+7、通过mknod产生了设备文件，但是此时这个设备文件和驱动没有任何关系。
+   但是文件又必须和指定驱动匹配，所以我们需要使某个驱动和设备文件建立关系。
+   如何实现驱动和设备文件建立关系？前提是必须了解一些重要结构体以及函数接口。
+	
+	
+8、字符设备驱动框架涉及到的结构体
+	 vim -t cdev 选择26
+	 12 struct cdev {  //用来描述一个字符设备的。
+	 13     struct kobject kobj;//先忽略
+	 14     struct module *owner;//任何情况下只需要赋值为THIS_MODULE,代表当前模块
+	 15     const struct file_operations *ops;//指向了file_operations结构体
+	 16     struct list_head list;//用来构建双向链表的
+	 17     dev_t dev;//存放设备号
+	 18     unsigned int count;                                                     
+	 19 };
+
+	vim -t file_operations
+	1525 struct file_operations {                                                   
+	1526     struct module *own,er;
+	1527     loff_t (*llseek) (struct file *, loff_t, int);
+	1528     ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
+	1529     ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *)
+	...............
+	1534     long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+	1535     long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
+	1536     int (*mmap) (struct file *, struct vm_area_struct *);
+	1537     int (*open) (struct inode *, struct file *);
+	...............
+	}
+	这个结构体中存放的都是函数指针，这些函数指针调用时需要在执行驱动时被赋值。
+	简单说上面的接口都是给驱动提供的。
+9、字符设备相关接口
+	 int register_chrdev_region(dev_t from, unsigned count, const char *name)
+	 功能:给系统注册静态设备号
+	 参数1:注册的起始设备号
+	 参数2:需要注册的设备个数
+	 参数3:设备或者驱动的名称
+	 返回值:0成功 非0失败
+	 
+	void cdev_init(struct cdev *cdev, const struct file_operations *fops)
+	功能:初始化cdev结构体(重点是将file_operations结构体的首地址存放给cdev结构体的ops成员)
+	参数1:cdev结构体首地址
+	参数2:file_operations结构体首地址
+	
+	int cdev_add(struct cdev *p, dev_t dev, unsigned count)
+	功能:将cdev结构体注册进内核(将设备号赋值给cdev结构体中dev成员，并且使驱动和
+	设备文件建立关系)
+	参数1:cdev结构体首地址
+	参数2:需要注册的设备号(因为需要这个设备号和设备文件建立联系)
+	参数3:次设备号的个数
+	
+	
+	void cdev_del(struct cdev *p) 
+	功能:将cdev结构体从系统中删除
+	
+	void unregister_chrdev_region(dev_t from, unsigned count)
+	功能:将设备号从系统中注销
+	参数1:需要注销的起始设备号
+	参数2:注销的设备个数
+	
+基本字符设备框架搭建:
+1、模块声明
+
+2、自定义加载函数
+	{
+		申请设备号
+		注册设备号
+		初始化cdev结构体 
+		注册cdev结构体到内核
+	}
+3、自定义卸载函数
+	{
+		注销cdev结构体
+		注销设备号
+	}
+	
+	

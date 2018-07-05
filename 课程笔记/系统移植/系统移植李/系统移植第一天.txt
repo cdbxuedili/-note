@@ -1,0 +1,219 @@
+李相山
+lixs_sh@farsight.com.cn
+15天 5天系统移植 10天驱动
+
+linux基础：命令 脚本 Makefile
+系统移植:命令 脚本 Makefile c语言 汇编 Kconfig 设备树 常见文件系统使用 
+
+1、什么是系统移植？
+什么是系统？硬件系统、软件系统
+
+硬件系统:
+软件系统:windows  linux 
+
+linux操作系统分成两层结构——用户空间、内核空间
+
+用户空间
+			应用程序、库、命令
+——————————————————————————————————————
+内核空间
+			系统调用
+			文件系统
+			网络协议栈
+			驱动
+			
+什么是移植？将一个硬件平台上的某些功能运行于另一个不同体系架构的硬件平台上
+1、对硬件的裁剪属于移植——硬件工程师做的。
+2、软件的裁剪——对某些大型源码的功能的添加和删除（uboot linux内核 各种第三方源码）
+
+
+移植过程中，更换硬件平台时，我们需要做大量的准备工作。
+1、我们需要移植哪些硬件
+2、一旦确认了需要移植的硬件后，可以去搜索网络上的资料或者看这个硬件自己的datasheet
+3、比如这个硬件使用了哪个总线和CPU相连，哪些寄存器，哪些控制器。
+
+
+PC使用x86架构
+fs4412开发板使用arm架构
+
+前提条件：
+gcc的编译过程：
+预处理:gcc -E 1.c -o 1.i      调用预处理器cpp 1.c -o 1.i 
+编译:gcc -S 1.i -o 1.s  调用编译器 cc1 1.i -o 1.s 
+汇编:gcc -c 1.s -o 1.o  调用汇编器 as 1.s -o 1.o 
+链接:gcc 1.o            调用链接器 ld 1.o 
+最终生成了可执行文件，可执行文件中包含了指令，指令给cpu识别的。
+x86架构和arm架构是两款cpu。如果是x86的可执行程序，arm不能识别。(x86理解为说普通话的中国人，arm架构假设为阿拉伯人)，要想能让一个x86架构上的功能运行与arm架构上需要使用交叉编译环境
+
+编写主机 		运行主机       编译环境 
+X86				X86         	 gcc  
+X86             arm              交叉编译器arm-none-linux-gnueabi-gcc
+arm             X86              没见过 
+什么叫交叉编译？当编写程序的主机和运行程序的主机CPU架构不同时，使用的编译环境叫做交叉编译环境。
+
+arm-none-linux-gnueabi-gcc 交叉编译器
+arm代表的是编译出的二进制文件适用于arm架构
+none代表不关心厂家是谁
+linux代表开发板必须使用的是linux操作系统
+gnueabi:gnu是一个组织(不要写成gun),eabi代表的是嵌入式应用程序二进制接口，这是一种规定好的标准
+
+arm-none-linux-gnueabi- 叫做交叉编译工具链
+
+配置交叉编译环境:
+1、给你们一个已经编译好的gcc-4.6.4.tar.xz压缩文件
+2、将压缩文件拷贝到ubuntu某个路径下，比如是~/abc，解压 
+3、sudo vi /etc/bash.bashrc 
+   在这个文件的最后一行添加:第一种export PATH=$PATH:交叉编译器源码的绝对路径
+							第二种PATH=$PATH:交叉编译器源码的绝对路径	
+								  export PATH
+							第三种export PATH=交叉编译器源码的绝对路径:$PATH
+							以上三种方法的作用是在PATH原有内容的基础上添加新内容
+							类似于:int a = 1;  a = 10;
+								   int a = 1;  a += 10; 在a原有值基础上新增数值	
+
+gcc 1.c 编译后生成a.out适用于x86架构
+arm-none-linux-gnueabi-gcc 1.c 生成的a.out适用于arm架构
+如何确定？file a.out 
+a.out: ELF 32-bit LSB executable(ELF格式的可执行程序), ARM(适用于arm架构), version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.38, not stripped(未瘦身)
+
+
+什么叫做未瘦身？没有删除二进制文件中的符号表
+什么叫做符号表? 二进制文件中包含的函数名或者是静态变量名
+如何查看符号表? nm 二进制文件 
+
+所谓的瘦身就是删除二进制文件中的符号表。注意:不能对中间文件瘦身
+通过file查看是否瘦身，通过nm来验证是否还有符号表
+符号表是给链接器使用的，在调用链接器之前符号表必须存在
+
+											
+反汇编.bin文件
+arm-none-linux-gnueabi-objdump -D(反汇编) -b binary(指定使用的是二进制文件) -m arm(指定使用arm架构) xxx.bin > xxx.dis
+	
+xxx.bin文件是干嘛的？三星平台默认识别的一种二进制文件(可能换一个平台.bin文件就没用了)
+xxx.srec此后缀文件和xxx.bin文件作用是完全一样的，但是.srec文件不能用于三星平台，只能用于摩托罗拉平台。	
+
+对某些可执行二进制文件进行格式转化，我们正常情况下使用的是elf格式，但是这种格式不能直接运行于开发板上，所要通过objcopy来进行格式转化。
+arm-none-linux-gnueabi-objcopy -O binary u-boot u-boot.bin 从u-boot可执行文件中提取出纯数据（只包含.data段）。
+
+学系统之后就相当于给pc机装系统。
+PC机:
+1、主板中集成了BIOS，这是一段程序，用来初始化一些硬件
+2、假设使用u盘，这个u盘被做成启动盘，存放了引导程序
+3、从网上下载windows镜像，拷贝到启动盘中
+4、在BOIS界面中选择以usb启动方式
+5、安装文件系统
+6、安装驱动
+7、安装应用软件(比如英雄联盟)
+
+开发板:
+1、也会存在一个类似于BIOS功能的程序，这段程序出厂时被厂家固化到了IROM中(无源码，无二进制文件)
+
+2、需要引导程序，我们选择的是u-boot，引导程序的作用就是用来选择某个操作系统内核到内存中运行。
+3、内核镜像
+4、挂载文件系统或者安装驱动
+5、运行第三方软件
+
+uImage内核镜像文件  exynos4412-fs4412.dtb设备树二进制文件  ramdisk.img文件系统镜像
+
+u-boot本身就是一段引导程序，运行于片外内存中.
+什么芯片？exynos一款芯片的主系列，exynos4412其中的一款芯片子系列。
+exynos4412芯片中包含:处理器（核心是cortex-a9），IROM，IRAM，控制器，寄存器等待
+
+一旦u-boot运行起来后，会有两种模式:交互模式、自启动模式
+
+主要讲交互模式:在这里必须使用u-boot命令(不是shell命令)
+
+
+一、为什么需要配置tftp
+首先开发板中运行了u-boot引导程序，引导程序自带了tftp命令(相当于是tftp客户端)，需要和ubuntu的tftp服务器进行通信，tftp服务器维护了一个文件夹叫做/tftpboot,在这个文件夹中存在了三个文件——内核镜像、设备树、文件系统镜像。
+
+tftp服务器配置方法:
+1、sudo apt-get install tftpd-hpa 下载安装服务器软件包
+2、sudo vi /etc/default/tftpd-hpa 
+	  1 # /etc/default/tftpd-hpa   #代表注释
+	  3 TFTP_USERNAME="tftp" 代表服务名称
+	  4 TFTP_DIRECTORY="/tftpboot" 规定了tftp服务器操作的文件夹路径在/tftpboot 
+	  5 TFTP_ADDRESS="0.0.0.0:69" 本机ip和端口
+	  6 TFTP_OPTIONS="-l -c -s"   实现的是上传和下载功能
+	  
+3、重启服务
+	sudo service tftpd-hpa restart 或者 sudo /etc/init.d/tftpd-hpa restart
+	
+二、为什么要使用nfs服务
+	首先nfs服务的作用是将ubuntu中的某个文件系统挂载到开发板上。
+	如果使用了nfs服务，此时不需要使用文件系统镜像(挂载文件系统和使用文件系统镜像是互斥的)
+	
+nfs服务器的配置方法：
+1、下载nfs服务器:sudo apt-get install nfs-kernel-server 
+2、sudo vi /etc/exports
+	在最后一行/rootfs  *(rw,sync,no_subtree_check,no_root_squash)
+	/rootfs内部必须是一个可用的文件系统
+	no_root_squash 不排挤root用户，说明开发板使用的是root用户
+	no_subtree_check 不检查子目录	
+3、sudo service nfs-kernel-server restart 或者 sudo /etc/init.d/nfs-kernel-server restart
+
+
+u-boot交互模式中常见的u-boot命令:
+打印u-boot中的环境信息
+printenv 或者 print 或者 pri 
+
+打印出的信息格式：
+变量名称=变量存放的内容
+
+设置变量以及内容
+setenv 变量名 内容   一定一定一定要注意:变量名和内容之间不能出现=
+
+保存环境变量:
+saveenv 或者 save
+
+删除环境变量:
+setenv 变量名  
+
+重要的环境变量以及操作:
+serverip 代表了ubuntu的ip地址
+ipaddr 代表了开发板的ip地址
+
+在串口上使用ping + ubuntu的ip地址，如果出现host 172.25.1.254 is alive说明两端联通。
+如果ping不通，原因有哪些？
+1、网线坏了或者网线根本没连
+2、ubuntu的ip不能正常使用
+	重启网络服务：sudo service network-manager restart 
+	或者 sudo /etc/init.d/network-manager restart
+3、	打开网络和共享中心——》更改适配器设置——》禁用除了以太网之外所有的网卡信息
+4、 手动设置ubuntu的ip地址，sudo ifconfig eth0 ip地址
+5、 在ubuntu和开发板之间必须连一个交换机，更厉害的是必须使用华清的交换机
+
+如何从ubuntu中下载文件到开发板上？
+三星手册第三章:片外内存地址范围是40000000 - A0000000
+tftp 41000000 uImage 从ubuntu的/tftpboot目录下下载uImage文件到开发板的片外内存41000000地址处运行
+41000000地址默认就是十六进制，这个地址可以改变只不过这是常用地址。
+
+tftp 42000000 exynos4412-fs4412.dtb（别在今天问我什么是设备树）
+从ubuntu的/tftpboot目录下下载exynox4412-fs4412.dtb文件到开发板的片外内存42000000地址处运行
+
+42000000 和 41000000之间差了16M大小，只需要满足能放下uImage就可以。
+
+tftp 43000000 ramdisk.img 
+
+需要运行下载好的内核镜像、设备树、文件系统镜像
+操作方法:bootm 41000000 43000000 42000000
+bootm当前位置的主要作用是跳转到指定地址运行，后面最多接3个地址，顺序必须是：内核镜像地址、文件系统镜像地址、设备树文件地址
+注意:如果其中哪个地址没有使用到则使用-代替
+
+bootcmd是用来自启动的一个变量,u-boot如果识别了bootcmd变量则自动执行bootcmd变量里的内容。
+
+ramdisk.img的生成需要以/rootfs为基础经过9个过程来产生，所以不便于调试。
+调试时使用/rootfs，一旦使用/rootfs，那么在bootcmd内容中不需要tftp 43000000 ramdisk.img 
+同时bootm中的43000000要被-替代。最后命令如下:
+setenv tftp 41000000 uImage\;tftp 42000000 exynos4412-fs4412.dtb\;bootm 41000000 - 42000000
+
+既然已经不使用ramdisk.img文件了，那么必须通过nfs服务来挂载/rootfs文件夹。
+如何实现这个功能？
+使用bootargs变量。这个变量内部存放的内容为了开发板去挂载/rootfs文件夹的。
+
+setenv bootargs root=/dev/nfs nfsroot=172.25.1.254:/rootfs rw console=ttySAC2,115200 init=/linuxrc ip=172.25.1.250
+
+
+
+
+

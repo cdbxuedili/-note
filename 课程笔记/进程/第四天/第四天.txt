@@ -1,0 +1,142 @@
+IPC三种通信方式
+
+获取key值的方式：
+1、自己填写一个整型值
+2、IPC_PRIVATE
+3、通过ftok获取（比较可靠）
+
+ftok
+#include <sys/types.h>
+#include <sys/ipc.h>
+key_t ftok(const char *pathname, int proj_id);
+功能：获取key值
+参数：1、路径名（必须存在）
+      2、整型值（低8位有效）
+返回值：成功返回key值，失败返回-1
+
+key值的组成：int型 共32位
+
+（proj_id的低8位  |  文件所属的文件系统的次设备号的低8位 |  pathname对应的inode号的低16位）
+
+
+消息队列：实现机制和管道相似，但和管道有区别
+1、管道是无分隔符字节流，无法分辨是几次发送，而消息队列会将每次发送的数据打包
+2、消息队列每次发送数据都会标上一个类型，接收端可以根据类型选择性的接收
+
+msgget
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+int msgget(key_t key, int msgflg);
+功能：打开或者创建消息队列
+参数：1、key值
+      2、IPC_CREAT | IPC_EXCL | 0664；
+返回值：失败返回-1，成功返回打开的消息队列的id
+
+msgsnd / msgrcv
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+int msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);              发送  sand out   --》snd
+ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp,int msgflg);        接收   receive    --》rcv
+
+功能：向指定的消息队列发送数据  / 接收数据
+参数：msgsnd
+	    1、指定的消息队列的id          msgid = ftok(key, IPC_CREAT | IPC_EXCL | 0664 )    指定结构构体    typedef struct 
+            2、结构体指针                                                                                
+            3、消息体大小（减去 long）     sizeof（MSG)/sizeof(long)                                          char  buf[128]; 
+            4、如果为0，阻塞，如果IPC_NOWAIT，非阻塞   
+      msgrcv                                                                                             }
+            1、指定的消息队列的id
+            2、结构体指针
+            3、消息体大小（减去 long）
+	    4、msgtyp > 0 则接收类型等于msgtyp的第一条消息
+               msgtyp = 0 则接收消息队列的第一条消息
+	       msgtyp < 0 则接收类型为msgtyp绝对值的第一条消息
+            5、如果为0，阻塞，如果IPC_NOWAIT，非阻塞
+返回值：msgsnd：失败返回-1，成功返回0
+	msgrcv：失败返回-1，成功返回接收到的消息体的字节数
+
+ipcs 查看IPC工具
+
+ipcs -q （Message Queues） 查看消息队列
+ipcs -m （Shared Memory Segments） 查看共享内存
+ipcs -s （Semaphore Arrays） 查看信号灯集
+
+ipcrm -q(-m -s) id 删除消息队列（共享内存，信号灯集）
+
+msgctl
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+int msgctl(int msqid, int cmd, struct msqid_ds *buf);
+功能：控制消息队列
+参数：1、指定的msgid
+      2、cmd：
+         IPC_STAT 获取状态
+         IPC_SET  设置消息队列属性
+         IPC_RMID 删除消息队列
+      3、如果是stat 或 set，则需要定义一个指定的结构体指针，如果cmd为rmid，则填NULL即可
+返回值：失败返回-1，成功返回0         
+
+共享内存
+在内核中开辟一段空间，分别映射到多个进程，则所有进程其实操作的是同一段物理内存
+
+shmget
+#include <sys/ipc.h>
+#include <sys/shm.h>
+int shmget(key_t key, size_t size, int shmflg);
+功能：打开或者创建共享内存
+参数：1、key值
+      2、创建时有效，创建共享内存的大小
+      3、IPC_CREAT 创建 | IPC_EXCL | 0664；
+返回值：成功返回shmid，失败返回-1
+
+shmat
+#include <sys/types.h>
+#include <sys/shm.h>
+void *shmat(int shmid, const void *shmaddr, int shmflg);
+功能：共享内存映射
+参数：1、shmid
+      2、如果为NULL，则系统会帮你选择一段合适的空间去映射
+	 如果想要自己指定某一段空间映射，则需要填一个地址
+      3、如果为SHM_RDONLY，则共享内存只读
+         其他可读写，一般写0；
+返回值：成功返回共享内存地址，失败返回（void *）-1;
+
+shmdt
+#include <sys/types.h>
+#include <sys/shm.h>
+int shmdt(const void *shmaddr);
+功能：取消映射
+参数：映射的共享内存的地址
+返回值：成功返回0，失败返回-1
+
+
+shmctl
+#include <sys/ipc.h>
+#include <sys/shm.h>
+int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+功能：控制共享内存
+参数：1、指定的shmid
+      2、cmd：
+         IPC_STAT 获取状态
+         IPC_SET  设置共享内存属性
+         IPC_RMID 删除共享内存
+      3、如果是stat 或 set，则需要定义一个指定的结构体指针，如果cmd为rmid，则填NULL即可
+返回值：成功返回0，失败返回-1
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,11 @@
+# depslib dependency file v1.0
+1527818214 source:d:\c++例程\第四天\demo1_mystring类型\fun.cpp
+	"head.h"
+
+1527818181 d:\c++例程\第四天\demo1_mystring类型\head.h
+	<cstring>
+	<iostream>
+
+1527818285 source:d:\c++例程\第四天\demo1_mystring类型\main.cpp
+	"head.h"
+

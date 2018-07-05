@@ -1,0 +1,12 @@
+16:59:24 **** Build of configuration Default for project led ****
+make all 
+rm -rf start/start.o common/src/_udivsi3.o common/src/_umodsi3.o common/src/printf.o common/src/uart.o main.o *.elf *.bin *.dis *.o
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  start/start.o start/start.S
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  common/src/_udivsi3.o common/src/_udivsi3.S
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  common/src/_umodsi3.o common/src/_umodsi3.S
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  common/src/printf.o common/src/printf.c
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  common/src/uart.o common/src/uart.c
+arm-none-eabi-gcc -g   -O0  -mabi=apcs-gnu -mfpu=neon -mfloat-abi=softfp  -fno-builtin -nostdinc  -I ./common/include      		                                        -c -o  main.o main.c
+arm-none-eabi-ld  start/start.o common/src/_udivsi3.o common/src/_umodsi3.o common/src/printf.o common/src/uart.o main.o -T map.lds -o led_gpio.elf
+arm-none-eabi-objcopy  -O binary  led_gpio.elf led_gpio.bin 
+arm-none-eabi-objdump -D led_gpio.elf > led_gpio.dis 

@@ -1,0 +1,237 @@
+【1】复习
+  help
+  md
+  nm
+  printenv
+  setenv
+     bootcmd
+	 bootargs
+	 ipaddr
+	 serverip
+	 bootdelay   
+     setenv  name  value
+  saveenv
+  
+  tftp  41000000 uImage
+  tftp  42000000 exynos4412-fs4412.dtb
+  bootm  41000000 - 42000000 
+  
+  tftp  41000000 uImage; tftp  42000000 exynos4412-fs4412.dtb; bootm  41000000 - 42000000
+  
+  setenv  bootargs  root=/dev/nfs  nfsroot=ubuntu的ip地址:/rootfs  init=/linuxrc console=ttySAC2,115200 ip=开发板的ip地址
+  
+  setenv  serveraddr  192.168.1.100
+  
+ 
+【2】uboot移植
+   1、官网下载
+      下载方式两种：
+	   git:
+	     git教程
+	     https://www.liaoxuefeng.com/wiki/0013739516305929606dd18361248578c67b8067c8c017b000
+	   ftp：
+	     
+	      
+	      
+       	   
+       
+   2、第三方
+      
+	  
+	  uboot的目录结构：
+	     平台相关代码：决定uboot是否支持这个板子
+            arch/arm/
+			arch/arm/cpu/armv7
+			board/samsung/origen
+			include
+			lib			
+			
+			
+			参考板名字             soc             cpu
+			smdk2410              s3c2410         arm920t
+            smdk6400              s3c6400         arm1176 
+            smdkc100              s5pc100         cortex_a8   armv7
+            origen                exynos4		  cortex_a9   armv7 
+			
+			
+			fs4412使用的soc:exynos4412,cpu:cortex_a9,和三星的参考板(origen)是一致的。
+			参考origen。
+			
+			
+			
+			
+			
+
+        平台无关代码：决定uboot支持哪些功能
+		   common
+		   driver
+		   dts
+           include		   
+		   lib 
+		   net
+		   
+	
+    Makefile    README 
+	
+
+   uboot的编译
+   
+    1、删除生成的所有的文件
+	     make  distclean
+         	
+  	2、添加交叉编译器
+	    184 ifeq (arm,$(ARCH))
+		185   CROSS_COMPILE ?=arm-none-linux-gnueabi-                                                                    
+		186 endif
+		
+		make  ARCH=arm  CROSS_COMPILE=arm-none-linux-gnueabi-
+		
+		
+    3、配置uboot，让uboot支持origen
+       make   origen_config 
+       
+    4、make
+       sudo  cp  u-boot.bin  /tftpboot
+	   
+【3】uboot的调试
+   
+    1、仿真器
+    2、在汇编阶段使用点灯，c代码：打印 
+	
+	
+	uboot从哪个代码执行，以及运行的地址都是有lds链接脚本决定。
+	在编译uboot源码时，在uboot源码的顶层目录下生成uboot.lds,
+	在这个文件中指定uboot的运行地址.
+	
+	输出的格式为：elf  32bit 小端格式
+	1 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")                                    
+     输入出的平台为arm平台
+  2 OUTPUT_ARCH(arm)
+     入口  _start 
+  3 ENTRY(_start)
+  4 SECTIONS
+  5 {
+  6  . = 0x00000000; uboot的运行地址 0x00000000  +代码段的基地址，
+                     基地址可以通过uboot编译看到0x43e00000。这个地址的
+					 定义在  include/configs/origen.h 
+					 
+  7  . = ALIGN(4); 4个字节对齐
+  8  .text :
+  9  {
+ 10   __image_copy_start = .;
+ 11   arch/arm/cpu/armv7/start.o (.text*)
+ 12   *(.text*)
+ 13  }
+ 14  . = ALIGN(4);
+ 15  .rodata : { *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.rodata*))) }
+ 16  . = ALIGN(4);
+ 17  .data : {
+ 18   *(.data*)
+ 
+ 
+ uboot运行：
+     arch/arm/cpu/armv7/start.S 
+	 
+	  _start:
+	       b  reset
+	  reset:
+	      126 reset:
+			127     ldr r0, =0x114001E0
+			128     ldr r1, [r0]
+			129     bic r1, r1, #0xf0000
+			130     orr r1, r1, #0x10000
+			131     str r1, [r0]
+			132 
+			133     ldr r0, =0x114001E8
+			134     ldr r1, [r0]
+			135     bic r1, r1, #0x300
+			136     str r1, [r0]
+			137 
+			138     ldr r0, =0x114001E4                                                                                   
+			139     ldr r1, [r0]
+			140     orr r1, r1, #0x10
+			141     str r1, [r0]
+
+	 make  
+	 
+	 sudo  cp  u-boot.bin  /tftpboot 
+	 切换到开发板,进入到uboot的命令行：
+	 tftp   41000000  u-boot.bin 
+	    go  41000000
+	    led灯亮，说明uboot的第一条指令已经执行成功。
+	
+
+【4】uboot的启动流程
+    arch/arm/cpu/armv7/start.S 
+	初始化异常向量表，默认reset
+      39 _start: b   reset
+ 40     ldr pc, _undefined_instruction
+ 41     ldr pc, _software_interrupt
+ 42     ldr pc, _prefetch_abort
+ 43     ldr pc, _data_abort
+ 44     ldr pc, _not_used
+ 45     ldr pc, _irq                                                                                          
+ 46     ldr pc, _fiq	
+
+
+reset: 
+         保存启动参数
+128     bl  save_boot_params
+129     /*
+130      * set the cpu to SVC32 mode
+131      */
+         设置cpu的工作模式，设置arm指令集，关中断
+132     mrs r0, cpsr
+133     bic r0, r0, #0x1f
+134     orr r0, r0, #0xd3
+135     msr cpsr,r0		
+	
+	 bl  cpu_init_cp15
+	 
+	 288 ENTRY(cpu_init_cp15)
+	    299     /*
+		
+		    关MMU，使能I-cache （提高cpu的运行效率）
+300      * disable MMU stuff and caches
+301      */
+302     mrc p15, 0, r0, c1, c0, 0
+303     bic r0, r0, #0x00002000 @ clear bits 13 (--V-)
+304     bic r0, r0, #0x00000007 @ clear bits 2:0 (-CAM)
+305     orr r0, r0, #0x00000002 @ set bit 1 (--A-) Align
+306     orr r0, r0, #0x00000800 @ set bit 11 (Z---) BTB
+307 #ifdef CONFIG_SYS_ICACHE_OFF
+308     bic r0, r0, #0x00001000 @ clear bit 12 (I) I-cache
+309 #else
+310     orr r0, r0, #0x00001000 @ set bit 12 (I) I-cache                                                      
+311 #endif
+312     mcr p15, 0, r0, c1, c0, 0
+
+	
+	156     bl  cpu_init_crit       
+    	
+	     341 ENTRY(cpu_init_crit)
+342     /*
+343      * Jump to board specific initialization...
+344      * The Mask ROM will have already initialized
+345      * basic memory. Go here to bump up clock rate and handle
+346      * wake up conditions.
+347      */
+348     b   lowlevel_init       @ go setup pll,mux,memory                                                     
+349 ENDPROC(cpu_init_crit)
+
+    ctags  -R  创建索引文件
+	ctrl  + ]   跳转
+	ctrl  + t  返回
+	
+	      
+      
+    
+  
+  
+  
+  
+  
+  
+  
+  
+  

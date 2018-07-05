@@ -1,0 +1,380 @@
+【1】复习
+   arch/arm/cpu/armv7
+   board/samsung/fs4412
+   include/configs/fs4412.h
+   
+   
+   
+   common
+   driver
+   net
+   
+   dm9000_base 
+   
+   SROM:ROM  RAM
+         4  BANK
+          BANK1  0X5000000  - 0X60000000
+
+【2】内核移植
+   1、下载内核的源码
+   
+     linux-2.6.35                        linu-3.0  
+	                                         
+  2、解压缩
+    tar  xvf  linux-3.14.tar.xz 
+  
+  3、内核目录结构
+       平台相关代码
+	     arch/arm  
+         arch/arm/boot/dts
+   		 arch/arm/configs/exynos_defconfig
+       平台无关代码	   
+	     driver　
+		 
+   		  
+   readme  Makefile
+     
+	 
+    内核的移植：
+       1、删除生成的.o文件
+           make  mrproper
+       2、添加交叉编译器
+            vi  Makefile
+            198 ARCH        ?= arm         
+            199 CROSS_COMPILE   ?= arm-none-linux-gnueabi- 
+       3、拷贝默认的配置文件
+           cp arch/arm/configs/exynos_defconfig   .config 	   
+ 	  4、配置内核
+             make  menuconfig
+			  
+			sudo  apt-get install  libncurses5-dev
+       
+       5、make uImage	   
+                    sudo  apt-get install uboot-mkimage 
+		
+【3】菜单的生成
+    make  menuconfig
+    	
+
+Makefile:
+       511 %config: scripts_basic outputmakefile FORCE 
+ 512     $(Q)mkdir -p include/linux include/config                                                             
+ 513     $(Q)$(MAKE) $(build)=scripts/kconfig $@
+         menuconfig:
+		   $(MAKE)  $(build)=scripts/kconfig  menuconfig 
+        	make    -f    =scripts/kconfig  menuconfig 
+         			
+scripts/kconfig/Makefile:  menuconfig 
+           Kconfig := Kconfig  如果没有指定目录，在内核的顶层目录
+         23 menuconfig: $(obj)/mconf
+         24     $< $(Kconfig)             		 
+	 
+          menuconfig:./mconf 
+             mconf   Kconfig		  
+			 
+		mconf:生成菜单的工具	
+
+		
+Kconfig:  生成菜单的文件 
+ 
+   mainmenu "Linux/$ARCH $KERNELVERSION Kernel Configuration"  
+   mainmenu  生成主菜单
+   source "arch/$SRCARCH/Kconfig"   包含下一级菜单   
+   
+   menu "System Type"     menu:子菜单的名字
+   
+   
+ 
+mainmenu:
+menu:
+  source
+  config:选项  
+    
+
+driver/char/Kconfig  
+   config  TEST --------->.config    CONFIG_TEST  =y
+      bool  "hello hello  hello"  在菜单中显示
+
+如何确定目录对应的菜单的名字是什么？
+   找目录下的Kconfig：  menu  
+                          
+	make menuconfig  
+	      Device Drivers  --->  
+		       Character devices  ---> 
+			       [*]hello hello  hello
+	
+	
+	.config  ---->CONFIG_TEST  =y 
+	
+	
+	
+driver/char/test.c  
+   vi  Makefile 
+      obj-y  +=test.o   驱动就会编译到内核中
+      obj-$(CONFIG_TEST)  +=test.o  
+	  
+	  
+Kconfig       .config          Makefile 
+
+
+【4】内核的移植
+   [    1.505000] VFS: Cannot open root device "nfs" or unknown-block(0,255): error -6
+[    1.510000] Please append a correct "root=" boot option; here are the available partitions:
+[    1.520000] b300         3817472 mmcblk0  driver: mmcblk
+[    1.525000]   b301         2114343 mmcblk0p1 00000000-01
+[    1.530000]   b302          309507 mmcblk0p2 00000000-02
+[    1.535000]   b303         1051578 mmcblk0p3 00000000-03
+[    1.540000]   b304          309507 mmcblk0p4 00000000-04
+[    1.545000] b318             512 mmcblk0rpmb  (driver?)
+[    1.550000] b310            4096 mmcblk0boot1  (driver?)
+[    1.555000] b308            4096 mmcblk0boot0  (driver?)
+[    1.560000] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,255)
+[    1.560000] CPU: 1 PID: 1 Comm: swapper/0 Not tainted 3.14.0 #1
+[    1.560000] [<c0013e10>] (unwind_backtrace) from [<c0011240>] (show_stack+0x10/0x14)
+[    1.560000] [<c0011240>] (show_stack) from [<c037dedc>] (dump_stack+0x64/0xb4)
+[    1.560000] [<c037dedc>] (dump_stack) from [<c037b33c>] (panic+0x8c/0x1dc)
+
+  出现错误的原因是：内核不支持nfs,有可能内核不支持网卡驱动。
+  解决方法：让内核支持网卡和nfs。
+
+  fs4412使用的网卡是dm9000。
+    linux@ubuntu64-vm:~/2018-05-03/linux-3.14$ find  .  -name dm9000.c
+   ./drivers/net/ethernet/davicom/dm9000.c
+   
+    make  menuconfig
+	   Device Drivers  ---> 
+	       [*] Network device support  ---> 
+		         [*]   Ethernet driver support  ---> 
+				       <*>   DM9000 support 
+					   
+	make  uImage
+   [    1.505000] VFS: Cannot open root device "nfs" or unknown-block(0,255): error -6
+[    1.505000] mmcblk0: mmc1:0001 4YMD3R 3.64 GiB
+[    1.505000] mmcblk0boot0: mmc1:0001 4YMD3R partition 1 4.00 MiB
+[    1.505000] mmcblk0boot1: mmc1:0001 4YMD3R partition 2 4.00 MiB
+[    1.505000] mmcblk0rpmb: mmc1:0001 4YMD3R partition 3 512 KiB
+[    1.535000] Please append a correct "root=" boot option; here are the available partitions:
+[    1.535000]  mmcblk0: p1 p2 p3 p4
+[    1.535000]  mmcblk0boot1: unknown partition table
+	
+  内核支持nfs。
+      File systems  ---> 
+             [*] Network File Systems  ---> 
+                     <*>   NFS client support                                                             │ │  
+  │ │               <*>     NFS client support for NFS version 2 (NEW)                                   │ │  
+  │ │               <*>     NFS client support for NFS version 3 (NEW)                                   │ │  
+  │ │               [*]       NFS client support for the NFSv3 ACL protocol extension                    │ │  
+  │ │               <*>     NFS client support for NFS version 4      			 
+                    [*]   NFS client support for NFSv4.1                                                 │ │  
+  │ │               [*]     NFS client support for NFSv4.2
+	                 [*]   Root file system on NFS 
+   [*] Root file system on NFS  这个选项看不到
+   搜索  nfs
+   
+   Symbol: ROOT_NFS [=n]                                                                                  │  
+  │ Type  : boolean                                                                                        │  
+  │ Prompt: Root file system on NFS                                                                        │  
+  │   Location:                                                                                            │  
+  │     -> File systems                                                                                    │  
+  │ (3)   -> Network File Systems (NETWORK_FILESYSTEMS [=y])                                               │  
+  │   Defined at fs/nfs/Kconfig:159                                                                        │  
+  │   Depends on: NETWORK_FILESYSTEMS [=y] && NFS_FS [=y]=y && IP_PNP [=n] 
+
+    搜索 IP_PNP [=n]  
+  
+    │ Symbol: IP_PNP [=n]                                                                                    │  
+  │ Type  : boolean                                                                                        │  
+  │ Prompt: IP: kernel level autoconfiguration                                                             │  
+  │   Location:                                                                                            │  
+  │     -> Networking support (NET [=y])                                                                   │  
+  │       -> Networking options                                                                            │  
+  │ (1)     -> TCP/IP networking (INET [=y])                                                               │  
+  │   Defined at net/ipv4/Kconfig:107                                                                      │  
+  │   Depends on: NET [=y] && INET [=y]  
+  
+     -> Networking support (NET [=y])                                                                   │  
+  │       -> Networking options                                                                            │  
+  │ (1)     -> TCP/IP networking (INET [=y]) 
+               [*]kernel level autoconfiguration 
+	
+	
+	make  uImage
+	     [*]
+		   obj-y  
+		    驱动随内核一起启动
+	make  modules
+         [m]
+		   test.ko  
+		   obj-m
+		    驱动不会随内核一起启动，当需要时在执行.
+			insmod   test.ko  
+			
+	
+【6】设备树
+     早期的内核使用platform_device描述硬件信息
+    描述开发板的硬件信息 
+linux-3.14/arch/arm/boot/dts$ cp exynos4412-origen.dts exynos4412-fs4412.dts 
+			
+			
+	vi  arch/arm/boot/dts/Makefile
+    64 dtb-$(CONFIG_ARCH_EXYNOS) += exynos4210-origen.dtb \
+ 65     exynos4210-smdkv310.dtb \
+ 66     exynos4210-trats.dtb \
+ 67     exynos4210-universal_c210.dtb \
+ 68     exynos4412-odroidx.dtb \
+ 69     exynos4412-fs4412.dtb \ 
+
+   在内核的顶层目录下编译设备树
+    make  dtbs
+	
+	sudo   cp arch/arm/boot/dts/exynos4412-fs4412.dtb    /tftpboot/	   
+
+设备树只有一个根节点，可以有多个子节点	
+  根节点使用  /
+     compatible = "insignal,origen4412", "samsung,exynos4412";
+	
+	驱动和设备树通过compatible匹配。
+	由一个或者多个字符串组成。
+	samsung,exynos4412
+	参数1：厂商
+	参数2：设备
+	
+	 22     memory {
+ 23         reg = <0x40000000 0x40000000>;
+ 24     };
+ 
+	memory:子节点的名字   
+	   reg:  内存的地址信息
+	   
+	   参数1：起始地址
+	   参数2：偏移的大小
+	   
+	如何在设备树添加网卡的硬件信息？
+     	参考内核的文档：linux-3.14/Documentation/devicetree/bindings/net$ vi davicom-dm9000.txt 
+		    ethernet@18000000 {
+ 20         compatible = "davicom,dm9000";
+ 21         reg = <0x18000000 0x2 0x18000004 0x2>;
+ 22         interrupt-parent = <&gpn>;
+ 23         interrupts = <7 4>;
+ 24         local-mac-address = [00 00 de ad be ef];
+ 25         davicom,no-eeprom;
+ 26     };  
+ 
+ 
+   在dm9000的probe函数加打印信息
+       printk
+	在设备树中添加网卡的硬件信息
+	  ethernet {
+	      compatible = "davicom,dm9000"；
+	  
+	  
+	  };
+	  
+	make  uImage
+	make  dtbs
+	
+	sudo  cp  arch/arm/boot/uImage  /tftpboot 
+	sudo  cp  arch/arm/boot/dts/exynos4210-fs4412.dtb  /tftpboot   
+	
+	[    1.235000] ******************************************************************************************************************************
+[    1.245000] dm9000 ethernet.2: insufficient resources
+[    1.250000] dm9000 ethernet.2: not found (-2).
+   出现的错误信息在驱动中打印。在设备树中添加内存的信息及中断的信息.
+   
+   添加reg的硬件信息
+   ethernet@5000000 {
+	      compatible = "davicom,dm9000"；
+	       reg = <0x5000000 0x2 0x5000004 0x2>;   
+	  
+	  };
+	添加中断的硬件信息
+     如何在设备树中添加中断的硬件信息？
+     linux-3.14/Documentation/devicetree/bindings/interrupt-controller$ vi   interrupts.txt	 
+	  
+	  13   Example:
+ 14     interrupt-parent = <&intc1>;
+ 15     interrupts = <5 0>, <6 0>;    
+ 
+      由原理图可知：
+	   DM9000_IRQ------>XEINT6----->gpx0_6
+	   
+    由芯片手册猜测gpx0_6的父节点是GIC。在设备树中添加gic和gpx0_6的硬件信息。
+	如果设备树中已经有gic的硬件的信息，gpx0_6直接引用即可。
+	
+
+	exynos4x12-pinctrl.dtsi
+	     |
+					 |   560         gpx0: gpx0 {                                                                                       
+			561             gpio-controller;
+			562             #gpio-cells = <2>;
+			563 
+			564             interrupt-controller;
+			565             interrupt-parent = <&gic>;   引用gic，gpx0的父节点是gic
+			566             interrupts = <0 16 0>, <0 17 0>, <0 18 0>, <0 19 0>,
+			567                      <0 20 0>, <0 21 0>, <0 22 0>, <0 23 0>;
+			568             #interrupt-cells = <2>; 指定子节点的interrupts 只有两个参数.
+		 |
+		 |
+		 |
+		 |
+		 |
+		 |
+		 |
+		 |
+	exynos4x12.dtsi 
+		 |   
+	     |
+     exynos4412.dtsi	   
+         |    25     gic: interrupt-controller@10490000 {      gic: 供子节点引用                                                              
+		 |			 26         cpu-offset = <0x4000>;
+		 |			 27     };
+		 |			 28 
+		 |
+		 |
+   exynos4412-fs4412.dts 
+   
+
+
+  什么意思？
+ interrupts = <0 16 0>, <0 17 0>, <0 18 0>, <0 19 0>,
+			567                      <0 20 0>, <0 21 0>, <0 22 0>, <0 23 0>;   
+参考文档：
+   linux-3.14/Documentation/devicetree/bindings/arm$ vi gic.txt 	
+	
+   中断类型	
+  The 1st cell is the interrupt type; 0 for SPI interrupts, 1 for PPI
+ 24   interrupts.
+ 25 
+       中断号
+ 26   The 2nd cell contains the interrupt number for the interrupt type.
+ 27   SPI interrupts are in the range [0-987].  PPI interrupts are in the
+ 28   range [0-15].
+ 29  中断的触发方式
+ 30   The 3rd cell is the flags, encoded as follows:
+ 31     bits[3:0] trigger type and level flags.
+ 32         1 = low-to-high edge triggered        上升沿触发                                                               
+ 33         2 = high-to-low edge triggered         下降沿触发
+ 34         4 = active high level-sensitive         高电平触发
+ 35         8 = active low level-sensitive          低电平触发
+
+ gpx0包含gpx0_0  gpx0_1   ......gpx0_7,所以gpx0_6的中断的父节点是gpx0.
+ 
+
+    		ethernet@5000000 {
+            compatible = "davicom,dm9000";
+            reg = <0x5000000 0x2 0x5000004 0x2>;
+            interrupt-parent = <&gpx0>;
+            interrupts = <6 4>;
+            local-mac-address = [00 00 de ad be ef];
+            davicom,no-eeprom;
+      };   
+
+
+
+vi  driver/clk/clk.c 
+
+529 static bool clk_ignore_unused  =true; 	
+
+make  uImage  
+
+  

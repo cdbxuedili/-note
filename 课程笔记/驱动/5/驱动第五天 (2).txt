@@ -1,0 +1,378 @@
+platform总线:为了实现设备和驱动的分离
+总线——由内核实现、维护了一张驱动链表、一张设备链表，并且可以让驱动和设备进行匹配
+驱动 设备 由驱动开发者实现，将驱动和设备注册给总线。
+
+struct platform_device
+{
+	const char *name;//可以用来和驱动匹配，一定会出现在/sys/bus/platform/devices目录下
+	struct device dev;//专门用来描述设备信息
+	struct resource *resource;
+};
+
+struct device
+{
+	void (*release)(struct device *);//释放设备信息
+};
+
+struct resource
+{
+	int start;//如果flags使用的是 IORESOURCE_MEM，则start代表了寄存器的起始地址
+	int end; //如果使用了 IORESOURCE_MEM，end代表了寄存器的结束地址
+	int flags;//IORESOURCE_MEM  IORESOURCE_IRQ IORESOURCE_DMA
+};
+
+struct platform_driver
+{
+	struct device_driver driver;
+	struct platform_dervice_id *id_table;
+	int (*probe)(struct platform_device *);//探测函数，当驱动和设备匹配成功后执行
+	一定要注意:probe函数的参数如果匹配成功就会被传参(总线做的，传递的参数是和驱动匹配的设备结构体首地址)
+	
+	int (*remove)(struct platform_device *);//和探测函数相反
+};
+
+struct device_driver 
+{
+	const char *name;//可以用来和设备匹配，一定出现在/sys/bus/platform/drivers目录下
+};
+
+struct platform_dervice_id
+{
+	char name[];//专门用来和设备匹配的
+}
+struct platform_dervice_id myidtbl[] = {
+	{
+		.name = "demo0",
+	},
+	{
+		.name = "demo1",
+	},
+	{
+		.name = "demo2",
+	},
+};
+
+platform设备的搭建过程
+1、搭建模块三要素
+	struct resource restbl[] = {
+		{
+			.start = ,
+			.end = ,
+			.flags = ,
+		},
+		{
+		},
+	};
+
+	struct platform_device pdev = {
+		.name = ,
+		.dev = {
+			.release = ,
+		},
+		.resource = restbl,
+	};
+2、在加载函数中调用platform_device_register(struct platform_device *);
+3、在卸载函数中调用platform_device_unregister();
+
+platform驱动的搭建过程
+	struct platform_driver pdrv = {
+		.driver = {
+			.name = ,
+		},
+		
+		.probe = ,
+		.remove = ,
+	};
+
+1、搭建模块三要素 也可以执行调用module_platform_driver();此时要注意必须使用模块声明
+	module_platform_driver(struct platform_driver );
+
+	int fs4412_led_probe(struct platform_device *pdev)
+	{
+		//如何获取设备中的寄存器地址？
+		pdev->resource[0].start 这就是获取方法
+	}	
+2、在probe函数中搭建字符设备框架和设备类
+	
+3、在remove函数中注销设备类以及注销字符设备框架
+
+设备树
+了解:
+设备树是一种可以描述硬件信息的配置文件，描述的硬件信息在内核中会被转化成c代码
+
+u-boot的环境变量中有一个叫做bootcmd
+setenv bootcmd tftp 41000000 uImage\;tftp 42000000 xxx.dtb\;bootm 41000000 - 42000000
+其中tftp 42000000 xxx.dtb只是将设备树二进制文件下载到内存中
+执行完bootm后这个命令除了会跳转到指定地址还会给内核传递参数(参数包括了设备树二进制文件的地址)
+
+在内核启动过程中，汇编代码会使用r2寄存器来存放设备树的二进制文件首地址，内核还会通过汇编代码来判断是否使用了设备树，如果使用了设备树，内核源码在c代码执行过程中会调用setup_arch函数来解析设备树——设备树中会有很多节点，每个节点解析完之后都会变成struct device_node。
+
+掌握:
+设备树命名问题:xxx.dts源文件
+			   xxx.dtb二进制文件
+			   xxx.dtsi设备树头文件，可以使用#include来包含
+			   
+我们当前平台使用的设备树是exynos4412-origen.dts 
+exynos4412-origen.dts->exynos4412.dtsi->exynos4x12.dtsi->exynos4.dtsi -> skeleton.dtsi
+
+平时添加的内容都是在exynos4412-origen.dts里面添加,假设这个文件中使用了
+#include demo.dtsi  
+设备树的基本语法特性:节点和属性
+
+exynos4412-origen.dts:
+
+节点特性:
+/{根节点
+	子节点
+	demo1@地址1{
+		xxx{孙节点
+		
+		};
+	};
+	
+	demo2{
+		
+	};
+	
+	demo1@地址2{ 如果有同名节点出现则需要在节点名称后面加寄存器地址
+	
+	};
+	
+	demo3{想要使用demo.dtsi中test节点的功能
+		属性名称 = <&loop>;
+	};
+		
+};
+
+demo.dtsi:
+/{
+loop: test{
+		功能;
+	};
+};
+
+属性特性:默认属性、自定义属性
+暂时只使用到了默认属性:reg = <寄存器基地址 寄存器偏移量>;
+					   #address-cells = <1>;代表了当前节点的子节点中reg属性的基地址个数
+					   #size-cells = <0>;代表了当前节点的子节点中reg属性的偏移量个数
+					   在设备树中一个cell代表的是一个32位无符号整数
+					   
+					   compatible = ",",","; 用来和驱动匹配的
+					   
+struct platform_driver
+{
+	struct device_driver driver;
+};
+
+struct device_driver 
+{
+	struct of_device_id *of_match_table;
+};
+
+在驱动中使用方法：
+struct of_device_id mytbl[] = {
+	{
+		.compatible = ",",保证和设备树中的compatible属性内容完全一致
+	},
+	{},
+};
+————————————————————————————————————————————————————————————————————————————————————————
+第五天
+
+内核如何实现的设备树和驱动的匹配？
+vi -t platform_driver_register
+			||
+			\/
+190 #define platform_driver_register(drv) \                                     
+191     __platform_driver_register(drv, THIS_MODULE)
+				||
+				\/
+	536     drv->driver.bus = &platform_bus_type;
+								||
+								\/
+ 919 struct bus_type platform_bus_type = {                                      
+ 922     .match      = platform_match,
+ 925 };						||
+							\/
+			750     struct platform_device *pdev = to_platform_device(dev);
+					获取设备结构体首地址
+			751     struct platform_driver *pdrv = to_platform_driver(drv);
+					获取驱动结构体首地址
+			754     if (of_driver_match_device(dev, drv))
+								||
+								\/
+			26     return of_match_device(drv->of_match_table, dev) != NULL;
+								||
+								\/
+			26     return of_match_node(matches, dev->of_node);
+								||
+								\/
+			811     match = __of_match_node(matches, node);
+								||
+								\/
+			786         score = __of_device_is_compatible(node, matches->compatible,
+			787                           matches->type, matches->name);
+								||
+								\/
+			383     if (compat && compat[0]) {判断驱动中的of_device_id结构体中的compatible成员是否被正常初始化
+			 384         prop = __of_find_property(device, "compatible", NULL);
+															设备树中的属性名称
+								这个函数功能:查找设备树中的属性							
+			 385         for (cp = of_prop_next_string(prop, NULL); cp;
+			 386              cp = of_prop_next_string(prop, cp), index++) {
+			 387             if (of_compat_cmp(cp, compat, strlen(compat)) == 0) {
+								设备树中的compatible属性和驱动中的compatible成员的比较
+			 388                 score = INT_MAX/2 - (index << 2);
+			 389                 break;
+			 390             }
+			 391         }
+
+			 
+和reg属性相关的设备树信息是如何转化为c代码的？
+vi -t of_platform_populate
+479         rc = of_platform_bus_create(child, matches, lookup, parent, true);
+						||
+						\/
+393     dev = of_platform_device_create_pdata(bus, bus_id, platform_data, parent);
+						||
+						\/
+	210     dev = of_device_alloc(np, bus_id, parent);
+						||
+						\/
+159         res = kzalloc(sizeof(*res) * (num_irq + num_reg), GFP_KERNEL);
+			//给struct resource结构体申请空间
+165         dev->num_resources = num_reg + num_irq;
+166         dev->resource = res;
+167         for (i = 0; i < num_reg; i++, res++)
+168             rc = of_address_to_resource(np, i, res);
+							||
+							\/
+	682     return __of_address_to_resource(dev, addrp, size, flags, name, r);
+							||
+							\/
+			650         r->start = taddr;//将设备树中的寄存器起始地址存放给start
+			651         r->end = taddr + size - 1;
+———————————————————————————————————————————————————————————————————————————————————— 
+蜂鸣器的操作:
+1、将蜂鸣器引脚设置为定时器输出模式
+2、设置TCFG0，将对应引脚设置为time0的预分频值
+3、设置TCFG1，设置分频系数
+4、设置TCNTB0,TCMPB0,用来控制占空比
+5、设置TCON寄存器，填充TCNTB0,TCMPB0的初始值
+6、重新装在TCNTB0,TCMPB0,并且开启定时器
+
+
+蜂鸣器设备树信息
+578     fs4412-beep{
+579         compatible = "fs4412,beep";
+580         reg = <0x114000a0 0x4 0x139d0000 0x14>;                          
+581     };
+
+—————————————————————————————————————————————————————————————————————————————————————— 
+有些特殊的驱动，可能不是基于platform总线的，此时不会默认和compatible属性匹配。
+
+566     ofled{
+567         led2 = <&gpx2 7 0>;                   
+568         led1 = <&gpx1 0 0>;
+569         led3-4 = <&gpf3 4 0>,<&gpf3 5 0>;
+			//led3 = <&gpf3 4 0>;
+			//led4 = <&gpf3 5 0>;
+};
+
+&gpx2引用了exynos4x12-pinctl.dtsi中的gpx2标号，这个标号所指定的节点代表了gpio控制器
+7 因为我们查看原理图发现，第一个led灯对应的引脚是gpx2_7
+0 在当前未使用，如果使用代表默认值为0
+
+struct device_node *of_find_node_by_path("节点的绝对路径");
+
+static inline int of_get_named_gpio(struct device_node *np,const char *propname, int index)
+参数1:其他函数的返回值,指向一个节点
+参数2:这个节点下的某个具体的属性名称
+参数3:索引值
+返回值:是对应引脚编号
+
+int gpio_request(unsigned gpio, const char *label)
+参数1:of_get_named_gpio的返回值
+参数2:引脚的别名，如果不用传递NULL
+返回值:0正确，非0出错
+注意:有些引脚是不能使用这种方法来操作的。
+
+static inline int gpio_direction_output(unsigned gpio, int value)
+功能:设置引脚为输出模式
+参数1:of_get_named_gpio的返回值
+参数2:当前设置引脚为输出，则这个参数传递1
+
+static inline void gpio_set_value(unsigned int gpio, int value)
+参数1:of_get_named_gpio的返回值
+参数2:需要设置的具体数据
+
+内核中的同步互斥——了解
+cpu:可能是单核，可能是多核的
+os:可能是不可抢占的，可能是可抢占的
+
+不可抢占的os运行在单核cpu  效率最低
+不可抢占os运行在多核cpu(几乎不可能)
+
+可抢占os运行在单核cpu
+可抢占os运行在多核cpu  效率最高，微观同时执行多个任务
+
+可抢占:一个任务时间片使用完成时但是任务本身还未执行完成，当前cpu会被释放，可以给其他任务分配时间片。
+
+现在所使用的cpu和os都是多核的，可抢占的。微观同时执行多个任务，如果这些同时执行的任务使用了同一个资源，就会出现资源的竞争(竞态)，所以为了避免资源的竞争问题出现了同步互斥。
+
+内核中的同步互斥方法:
+1、中断屏蔽:只适用于单核cpu
+	关闭中断或者保存中断  local_irq_disable();
+	代码——临界区，这段代码在使用过程中可能和其他任务产生竞争
+	开启中断或者恢复中断 local_irq_enable();
+	
+	因为任务的调度是基于中断来实现的(任务可以被调度的前提是中断存在)
+2、原子操作——在程序运行过程中，绝对不能被打断操作
+	初始化原子操作:atomic_set(atomic_t *,int value);
+	atomic_dec_and_test();
+	atomic_inc();
+3、互斥锁——理解方式和进程中以及线程中都是一样的
+	初始化锁:mutex_init();
+	上锁:mutex_lock();//如果申请不到锁则任务阻塞，任务阻塞了又怎样？一旦任务阻塞，会首先将当前任务的资源信息保存起来，之后cpu会将这个阻塞任务从cpu中删除。
+	临界区
+	解锁:mutex_unlock();
+4、自旋锁
+	它和互斥锁一样，都是用来实现互斥的，它实现的互斥和互斥锁实现的互斥完全不同
+	
+	spin_lock_init();初始化自旋锁
+	spin_lock();//申请自旋锁，如果申请不到则自旋(无限循环)，在运行说明一直占用cpu，不能给其他进程分配时间片
+	临界区
+	spin_unlock();
+	
+	疑问?以后就用互斥锁就行了，这么是错误的
+	比如:
+	spin_lock();
+	ssleep(10);
+	spin_unlock();
+	只要一加载就死机
+	也就是说:自旋锁内部不允许加延时类函数
+	
+	非常关键的一点:如果我们现在有一个中断处理函数(尽快完成)，并且在这个中断处理函数中我想实现互斥操作，只能用自旋锁。
+	
+	/*当然还有特殊情况，中断处理函数还会分成中断上半部和中断下半部。*/
+	
+5、信号量——实现同步的
+	sema_init();初始化信号量
+	down();申请资源
+	up(); 释放资源
+
+
+线程1
+pthread_mutex_lock();
+临界区——不是原子操作，只能说在相关线程之间具有完整性操作
+pthread_mutex_unlock();
+
+
+线程2
+pthread_mutex_lock();
+临界区
+pthread_mutex_unlock();
+
+线程3
+printf();
+

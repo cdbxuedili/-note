@@ -1,0 +1,7 @@
+# depslib dependency file v1.0
+1527565766 source:d:\c++例程\第一天\demo8_自定义名称空间\main.cpp
+	<iostream>
+	"head.h"
+
+1527565856 d:\c++例程\第一天\demo8_自定义名称空间\head.h
+

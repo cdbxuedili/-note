@@ -1,0 +1,14 @@
+
+
+.text
+.globl asm_delay
+asm_delay:
+
+	stmfd sp!,{r4}
+	mov r4,r0
+11:
+	subs r4,r4,#1
+	bne 11b
+
+	ldmfd sp!,{r14}
+	mov pc,lr @bx lr

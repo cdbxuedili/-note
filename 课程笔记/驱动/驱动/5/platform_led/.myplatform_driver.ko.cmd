@@ -1,0 +1,1 @@
+cmd_/home/linux/teach/17062/driver/5/platform_led/myplatform_driver.ko := arm-none-linux-gnueabi-ld -EL -r  -T /home/linux/linux-3.14/scripts/module-common.lds --build-id  -o /home/linux/teach/17062/driver/5/platform_led/myplatform_driver.ko /home/linux/teach/17062/driver/5/platform_led/myplatform_driver.o /home/linux/teach/17062/driver/5/platform_led/myplatform_driver.mod.o

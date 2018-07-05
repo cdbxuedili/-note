@@ -1,0 +1,1 @@
+cmd_/home/linux/teach/17062/driver/7/key/key.ko := arm-none-linux-gnueabi-ld -EL -r  -T /home/linux/linux-3.14/scripts/module-common.lds --build-id  -o /home/linux/teach/17062/driver/7/key/key.ko /home/linux/teach/17062/driver/7/key/key.o /home/linux/teach/17062/driver/7/key/key.mod.o

@@ -1,0 +1,138 @@
+linux-3.14.01
+
+3主版本号  14是次版本号 01修订版本号
+
+如何选择内核版本？必须对linus说过的某些话有印象。
+linus说过:the whole arm thing is a fucking pain in the ass
+说过这句话后linux社区对于arm架构出现了一种全新的机制——设备树
+
+3.1x之后的版本支持设备树，所以以后我们开发几乎都是3主版本号 
+大部分情况下，次版本号为偶数时是稳定版。
+
+www.kernel.org
+
+内核关键的目录结构:
+arch存放的是和体系架构相关代码。
+Documentation 存放的是说明文档
+drivers 存放驱动代码
+fs 文件系统
+include 存头文件
+init/main.c 内核启动代码的c入口
+
+内核配置
+如何配置内核？
+1、百度
+2、查看README
+
+有两种:
+1、在顶层目录下执行 make 芯片系列名称_defconfig
+2、在顶层目录下执行 cp arch/arm/configs/exynos_defconfig .config
+
+配置完成后在顶层目录下生成.config文件，.config中的内容是Makefile使用的变量，变量的作用是一个变量就代表了内核中的一个选项(内核功能)。
+
+什么是软件裁剪？对内核功能的添加或删除(根据选项来做的)
+
+如何操作选项？
+在顶层目录下执行:make menuconfig
+注意:
+1、执行make menuconfig时保证终端足够大
+2、有些人使用menuconfig时会报错，提示缺少某个软件包libncurses5-dev 
+
+
+在menuconfig中每行都是一个选项，每个选项都和.config中的一个变量一一对应。
+会有主选项和子选项之分。
+每个选项前都可能出现[] () <>
+
+[]有两种选择    如果出现*说明这个选项对应的功能会参与编译
+<>有三种选择    出现*说明对应选项会参与编译，如果出现M说明此选项是一个模块，如果是空说明不参与编译
+() 有三种情况:字符串 十进制整数 十六进制整数
+
+问题1？这些选项怎么出现的？
+问题2？这些选项为什么能和内核中的源码对应起来。
+
+必须先掌握Kconfig语法:
+Kconfig文件就是实现menuconfig中的选项的。
+
+source 路径/Kconfig   引用了某个路径下的Kconfig文件 
+source arch/arm/Kconfig  
+
+menu "字符串" 代表了一个主选项名称
+	子选项
+endmenu
+
+子选项来说:
+string "my first configration" 说明在make menuconfig中会出现一个选项名称是my first configration，并且这个选项前面是()，而且这个()内部存字符串。
+
+int "my first configration" 说明()内部存十进制整数
+hex "my first configration" 说明()内部存十六进制整数
+
+bool "my first configration"  选项前会出现[]
+tristate  "my first configration" 选项前出现<>
+
+config ABC 
+	tristate "my abc"
+
+config ABC  最终会变成CONFIG_ABC,出现在和Kconfig同级目录的Makefile中，寻找：
+obj-$(CONFIG_ABC) += xxx.o说明如果my abc选项被选中，则xxx.o会参与编译
+
+内核的编译方法:make uImage   如果编译成功会在arch/arm/boot/出现uImage文件
+编译设备树文件的方法:make dtbs 如果成功设备树二进制文件exynos4412-fs4412.dtb出现在
+arch/arm/boot/dts目录下
+
+什么是设备树？devicetree
+用来描述硬件信息的，并且要和驱动匹配。
+
+设备树命名方式:.dts设备树源文件 .dtb设备树二进制文件 .dtsi设备树头文件
+
+设备树基本语法:
+
+节点名称{
+	属性 = 属性值;
+	
+	子节点1{
+		属性 = 属性值;
+	};
+	
+	子节点2{
+		属性 = 属性值;
+	};
+};
+
+设备树源文件节点都是从根节点开始的。
+/{
+		
+	
+};
+
+节点名称@地址{//这里的地址是用来区分同名节点的不同设备。
+
+};
+
+重要属性:
+compatible = "字符串1第一部分,字符串1第二部分",",","",..."";
+比如: compatible = "samsung,fs4412","samsung,exynos4412","samsung,exynos";
+compatible = "davicom,dm9000";需要和网卡驱动匹配的。
+为什么compatible写成以上格式，进入内核寻找dm9000网卡驱动，drivers/net/ethernet/davicom/dm9000.c。
+设备树的compatible属性值要和驱动中of_device_id结构体下面的compatible成员匹配。
+
+reg = <寄存器1基地址 寄存器1的偏移量 寄存器2基地址 寄存器2偏移量>;
+
+
+interrupt-parent = <&gpx0>   中断源的父节点
+
+abc:my_name{
+	属性;
+};
+
+xyz{
+	属性 = <&abc>;
+};
+
+interrupt-parent = <&gpx0>; gpx0通过原理图知道代表了一种中断控制器，在设备树文件内部是一个标号
+
+vi Documentation/devicetree/bindings/arm/gic.txt
+interrupts = <6 4>; 用来描述中断源，6用来索引中断号，4代表中断触发方式
+1是上升沿触发 2是下降沿触发 4是高点平触发 8是低电平触发
+
+
+

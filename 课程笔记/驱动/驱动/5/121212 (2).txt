@@ -1,0 +1,240 @@
+应用层:ioctl(fd,cmd,没有值 或者 变量 或者 变量地址);
+驱动层:long (unlocked_ioctl)(struct file *,unsigned int cmd,unsigned long arg);
+
+命令是干嘛的？
+为了避免冲突:命令被分成4个部分
+	8  		 8 		    2 		  14
+  幻数    命令序号     方向    类型大小	
+
+幻数使用时要注意是否和系统存在的设备冲突，查看Documentation/ioctl/ioctl-number.txt
+
+_IO(幻数,序号)    无数据传输
+_IOR(幻数,序号,类型)   应用程序从驱动中读数据
+_IOW(幻数,序号,类型)   应用程序将数据写入到驱动中
+_IOWR(幻数,序号,类型)  
+
+int a = 10;
+ioctl(fd,cmd,a);
+
+驱动层中arg接收了应用层a的值。
+
+_IOW(幻数,cmd,int)
+
+
+int a = 10;
+ioctl(fd,cmd,&a);
+驱动层中arg接收了应用层a的地址(注意强转问题)。
+_IOW(幻数,cmd,int)
+
+
+platform总线——设备和驱动要分离
+
+总线 设备 驱动 
+
+第五天
+
+18 struct resource {                                                           
+ 19     resource_size_t start;//资源的起始地址
+ 20     resource_size_t end;//资源结束地址
+ 22     unsigned long flags;//标志位
+ 24 };
+
+flags成员:IORESOURCE_MEM
+		  IORESOURCE_IRQ 
+
+设备树:devicetree 
+命名:.dts .dtb xxx.dtsi 
+
+基本语法:
+vi arch/arm/boot/dts/exynos4412-fs4412.dts 
+在这个文件中:一定是以根节点为基础的。
+/{
+	.........
+};
+每个设备树文件的节点都是基于根节点的。
+
+属性分类:默认属性、自定义属性
+
+每个节点的内部都会包含属性，属性基本语法:属性名称 = 属性值;
+属性可能没有值：属性名称;
+属性如果有值: 属性名称 = <数字>;
+			  属性名称 = "字符串1","字符串2";
+			  属性名称 = <&标号>; 当前属性引用了其他标号内的属性。
+
+默认属性:
+正常情况下在一个节点内可以直接操作reg属性如下:
+reg = <寄存器基地址1 寄存器偏移量1 寄存器基地址2 寄存器偏移量2>;
+
+但是也有特殊情况:假设提示设备树中已经默认指定了reg属性地址个数2以及偏移量个数1
+父节点
+{
+	#address-cells = <2>;
+	#size-cells = <2>;
+	子节点
+	{
+		reg = <0x10000 0x2 0x10004 0x2>;
+	};
+}
+
+另一个重要属性:compatible = "字符串";//注意:这个字符串通常会被逗号分成两部分
+
+173 struct platform_driver {
+174     int (*probe)(struct platform_device *); //探测函数,如果驱动和设备匹配则执行探测函数。                                
+175     int (*remove)(struct platform_device *);
+179     struct device_driver driver;
+180     const struct platform_device_id *id_table;
+}
+
+228 struct device_driver {                                                     
+ 229     const char      *name;
+ 237     const struct of_device_id   *of_match_table;
+}
+
+223 struct of_device_id                                                         
+224 {
+227     char    compatible[128];//这个数组会存放字符串用来和设备树中的compatible属性匹配
+229 };
+
+
+设备树使用过程:
+1、添加设备信息:
+分析我们要操作的设备有哪些特点，需要使用到什么设备树属性。
+如果操作的是一个led驱动:
+则在arch/arm/boot/dts/exynos4412-fs4412.dts倒数第二行中添加如下:
+led{
+	compatible = "字符串"; //只需要保证和驱动中的.compatible成员一致就可以
+	reg = <0x11000c40 0x4 0x11000c20 0x4 0x114001e0 0x4>;	
+};
+
+到内核顶层目录下执行make dtbs 
+
+cp arch/arm/boot/dts/exynos4412-fs4412.dtb /tftpboot 
+重启开发板，此时会在开发板的sys/bus/platform/devices下看到我们自己新添加的设备信息
+
+2、实现驱动:
+155 struct of_device_id fdt_com_table[] = {
+156     {
+157         .compatible = "17062drv,led",//重点
+158     },                                                                      
+159     {},
+160 };
+161 
+162 struct platform_driver pdrv = {
+163     .driver = {
+164         .name = "laowu",
+165         .of_match_table = fdt_com_table,//重点
+166     },
+167     .probe = mypalt_drv_probe,
+168     .remove = mypalt_drv_remove,
+}
+
+编译驱动为模块，拷贝模块文件到开发板，执行inmod命令加载驱动模块，查看probe函数是否执行
+
+上午讲的设备树,设备树的信息和驱动的匹配是platform总线做的。但是有些情况不是基于platform总线，要使用设备树怎么办？
+
+内核中提供了一堆操作设备树的接口。
+
+struct device_node *of_find_node_by_path(const char *path)
+功能:通过节点路径来查找节点信息
+参数:
+
+假设在设备树中存在如下信息
+/{
+	demo1{
+		reg = <0x123456 0x2>;
+		mystr = "hello","world";
+	};
+};
+
+struct device_node *p;
+p = of_find_node_by_path("/demo1");//查找根节点下的demo1节点
+
+——————————————————————————————————————————————————————————————————————————
+
+struct property *of_find_property(const struct device_node *np,const char *name,int *lenp);
+功能:通过节点来查找节点中包含的属性信息
+参数1:of_find_node_by_path函数返回值
+参数2:需要查找的属性名称
+参数3:属性内容的长度，如果不关心传递NULL
+
+33 struct property {                                                           
+ 34     char    *name;//属性名称
+ 35     int length;//属性内容的长度
+ 36     void    *value;//属性值
+};
+
+————————————————————————————————————————————————————————————————————————————————
+
+struct device_node *of_find_node_by_name(struct device_node *from,const char *name)
+功能:从已知的父节点中寻找子节点信息。
+
+参数1:父节点device_node结构体指针
+参数2:子节点名字，注意：没有路径
+
+————————————————————————————————————————————————————————————————————————————————
+static inline int of_get_named_gpio(struct device_node *np,const char *propname, int index)
+
+功能:获取gpio引脚编号
+参数1:代表了设备树中某个节点
+参数2:某个节点下的属性名称
+参数3:索引编号
+
+————————————————————————————————————————————————————————————————————————————————————
+static inline int gpio_direction_output(unsigned gpio, int value)
+功能:用来设置gpio引脚是输出模式
+参数1:gpio引脚编号
+参数2:1代表输出高电平,0输出低电平
+
+static inline int gpio_direction_input(unsigned gpio) 
+功能:用来设置gpio引脚是输入模式
+
+————————————————————————————————————————————————————————————————————————————————————————
+static inline void gpio_set_value(unsigned gpio, int value)
+功能:给gpio引脚设置具体值
+
+static inline int gpio_get_value(unsigned gpio) 
+功能:获取gpio引脚值
+
+——————————————————————————————————————————————————————————————————————————————————————
+通过上面的接口实现led驱动，那么需要重新写设备树:
+fsled{
+	compatible = "fs4412,led";
+	led2 = <&gpx2 7 0>;
+	led1 = <&gpx1 0 0>;
+	led3-4 = <&gpf3 4 0>,<&gpf3 5 0>;
+};
+
+——————————————————————————————————————————————————————————————————————————————————————
+并发和竞态(了解、见到能认识)、IO模型、中断机制、按键中断驱动、定时器消抖、中断上下半部。
+
+操作系统:可抢占、不可抢占
+所谓的抢占就是中断，或者说抢占就是基于中断实现的。
+
+因为并发可以提高程序的执行效率，所以我们现在使用的系统都具备并发特性，但是并发执行多任务时会造成资源竞争。为了避免竞争状态，内核中提供了一些机制:
+
+
+
+一定注意:以下所有机制中都要注意临界区代码执行时间要足够短。
+1、中断屏蔽
+	local_irq_disable() /* 屏蔽中断 */
+	操作				
+	local_irq_enable()  /* 开中断*/
+	关闭中断可以防止任务被抢占，此时如果cpu是单核的那么一定避免竞态。
+	但是如果是多核cpu，虽然cpu中的进程都不会被抢占，但是事先已经运行的进程也可能造成竞态
+
+	什么是临界区？屏蔽中断和开中断之间的代码
+2、原子操作
+3、自旋锁
+4、互斥锁
+5、信号量
+
+
+
+
+
+
+
+
+
+
+

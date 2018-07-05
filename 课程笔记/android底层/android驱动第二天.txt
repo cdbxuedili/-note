@@ -1,0 +1,45 @@
+【1】jni  java本地方法
+
+1、编写java程序
+    1、在java程序调用动态库
+	    System.loadLibrary("hello");
+	2、声明本地方法（native修饰，使用native修饰的函数，实现在c库中实现）
+	3、调用动态库的函数
+	
+   javac  hello.java	
+   javah  -jni   hello 
+      hello.h 
+
+2、编写动态库 
+
+   gcc  -shared   -fPIC    hello.c  -o libhello.so  -I  /usr/lib/jvm/java-1.7.0-openjdk-amd64/include 
+   
+   指定动态库所在的目录  
+     export  LD_LIBRARY_PATH=.
+	 
+    运行java程序
+	  java  hello 
+	
+    gcc  test.c 
+         默认寻找的头文件在/usr/include 
+                           /lib 
+						   
+    -l  指定链接库的名字
+    -I  指定头文件所在的目录
+	-L  指定动态库所在的目录
+	
+  gcc  -shared  -fPIC  test.c  -o  libhello.so 
+  
+typedef struct {
+char *name;    在java中声明的本地方法名
+char *signature;   签名
+void *fnPtr;     在c语言中实现的函数名
+} JNINativeMethod;	
+
+	
+	
+        						   
+ 
+  
+
+	 

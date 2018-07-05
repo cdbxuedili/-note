@@ -1,0 +1,378 @@
+【1】驱动
+  字符设备驱动
+  块设备
+     flash
+  网络设备
+     网卡
+  
+  字符设备驱动的框架：
+    1、申请设备号
+    2、注册设备号
+    3、初始化cdev
+    4、cdev_add
+	
+【2】触摸屏驱动
+    电阻屏：单点触摸
+    电容屏：多点触摸	
+	
+    IIC:
+      SCL:
+      SDAT:
+	中断引脚：皮肤接触，产生中断
+    ioctl:复位
+	      1    0
+		  
+    fs4412原理图：
+        触摸屏----->IIC	
+		
+  IIC总线的硬件信息
+     320     i2c_0: i2c@13860000 {  i2c_0:供子节点引用
+321         #address-cells = <1>; 指定子节点reg的地址只有一个
+322         #size-cells = <0>;  指定子节点reg的偏移量
+323         compatible = "samsung,s3c2440-i2c";  和驱动匹配
+324         reg = <0x13860000 0x100>;  I2c 硬件信息
+325         interrupts = <0 58 0>;  中断源  中断的类型 中断号   中断的触发方式
+326         clocks = <&clock 317>;  指定i2c的时钟
+327         clock-names = "i2c";   指定时钟的名字
+328         pinctrl-names = "default","idle";  指定引脚的状态
+                 default：
+default状态表示设备处于active时的状态，一般在设备驱动的.resume中配置，另外在启动时也会配置pin脚为default状态。
+    idle
+idle状态表示系统处于idle时需要配置的pin脚状态，此时系统并没有进入深度休眠。
+    sleep
+sleep状态表示系统处于深度休眠时的pin脚状态，一般在设备驱动的.suspend中配置。
+
+
+inctrl-names定义了clientdevice用到的state列表。
+state有两种标识，一种就是pinctrl-names定义的字符串列表，
+另外一种就是ID。ID从0开始，依次加一。根据例子中的定义，
+stateID等于0（名字是"gt9xx_int_active"）的state对应pinctrl-0属性，
+stateID等于1（名字是"gt9xx_int_suspend"）的state对应pinctrl-1属性。
+
+
+329         pinctrl-0 = <&i2c0_bus>; 指定引脚的属性   
+                      30                samsung,pins = "gpd1-0", "gpd1-1";  指定哪个引脚
+						331             samsung,pin-function = <2>;  指定引脚的功能
+						332             samsung,pin-pud = <3>;  使能上拉
+						333             samsung,pin-drv = <0>;   驱动的强度（电流的强度）                                                                       
+330         status = "disabled";  设备不可操作
+331     };
+  
+		  
+    1、在设备树添加触摸屏的硬件信息
+       vi  arch/arm/boot/dts/exynos4412-fs4412.dts  
+      	   
+		    i2c@13890000{
+611         samsung,i2c-sda-delay = <100>;
+612         samsung,i2c-max-bus-freq = <20000>;
+613         pinctrl-0 = <&i2c3_bus>;
+614         pinctrl-names = "default";
+615         status = "okay";      设备可操作                                                                                 
+616 
+617        gt818@5d {
+618             compatible = "invensense,mpu6050";
+619             reg = <0x5d>;
+                interrupt-parent  = <&gpx1>;
+				interrupts  = <1  4>;
+				reg  = <0x100000  0x4>;				
+620         };
+621     };  
+
+
+
+中断处理函数：
+      调度工作队列
+	  
+
+工作队列的处理函数：
+    采集数据
+	   i2c_transfer
+     input_event  上报
+     input_sync    同步
+	 
+	  
+
+probe:
+     从i2c_client中获取硬件信息
+	ioremap
+	  设置输出模式
+	   输出低电平
+	    延时
+	   输出高电平
+	   
+	   注册中断  
+	       request_irq
+		
+       初始化输入子系统
+	   
+	   初始化工作队列
+	   
+i2c+input+中断下半部机制（工作队列）	   
+
+struct  i2c_driver 
+      probe
+
+int  hello_init
+     i2c_add_driver
+	 
+
+	 
+【3】内核调试
+ [root@farsight ]# insmod  vnet.ko
+[   26.260000] Unable to handle kernel NULL pointer dereference at virtual address 00000000
+[   26.265000] pgd = ee2c0000
+[   26.270000] [00000000] *pgd=6e19e831, *pte=00000000, *ppte=00000000
+[   26.275000] Internal error: Oops: 17 [#1] PREEMPT SMP ARM
+[   26.275000] Modules linked in: vnet(O+)
+[   26.275000] CPU: 1 PID: 1220 Comm: insmod Tainted: G           O 3.14.0 #107
+[   26.275000] task: ee1e70c0 ti: ee278000 task.ti: ee278000
+[   26.275000] PC is at register_netdevice+0x70/0x370
+[   26.275000] LR is at 0x74656e76
+[   26.275000] pc : [<c035bffc>]    lr : [<74656e76>]    psr: 60000053
+[   26.275000] sp : ee279df8  ip : 0000001c  fp : c007279c
+[   26.275000] r10: 00000001  r9 : ee19d940  r8 : bf000000
+[   26.275000] r7 : bf000130  r6 : 00000000  r5 : c0609b80  r4 : ee274000
+[   26.275000] r3 : 00000000  r2 : 80000000  r1 : ee279ddd  r0 : 00000000
+[   26.275000] Flags: nZCv  IRQs on  FIQs off  Mode SVC_32  ISA ARM  Segment user
+[   26.275000] Control: 10c5387d  Table: 6e2c004a  DAC: 00000015
+[   26.275000] Process insmod (pid: 1220, stack limit = 0xee278240)
+[   26.275000] Stack: (0xee279df8 to 0xee27a000)
+[   26.275000] 9de0:                                                       ee1e70c0 ee274000
+[   26.275000] 9e00: 00000000 bf0000f4 bf000130 bf000000 ee19d940 00000001 c007279c c035c310
+[   26.275000] 9e20: ee278000 bf00003c 00000001 00000487 ee278000 c00087b4 ee945000 00000000
+[   26.275000] 9e40: c0511234 c05e8248 ee918780 ef1e97e0 ee19d880 00000000 eefc1d40 c00ae630
+[   26.275000] 9e60: ef1e97e0 00000959 00000000 00000022 eefc1d20 c00ae630 00000001 00008681
+[   26.275000] 9e80: ee19d940 ee279f58 ee279f58 bf0000e8 bf0000f4 bf000130 00000001 00000001
+[   26.275000] 9ea0: c007279c c0074fac bf0000f4 00007fff c007302c 0000065f c00727f4 ee278000
+[   26.275000] 9ec0: bf0000e8 bf000230 f00abfe0 00000000 00000000 bf0000f4 6e72656b 00006c65
+[   26.275000] 9ee0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+[   26.275000] 9f00: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+[   26.275000] 9f20: 00000000 00000000 00000000 c00a4270 000000d2 000211f0 b6e0c008 000feb49
+[   26.275000] 9f40: 00000080 c000e5a4 ee278000 00000000 00000000 c00755b4 f0092000 000211f0
+[   26.275000] 9f60: f00abb80 f00aba59 f00b30d8 00000244 00000334 00000000 00000000 00000000
+[   26.275000] 9f80: 0000001c 0000001d 00000009 00000000 00000006 00000000 00000000 00000000
+[   26.275000] 9fa0: b6e372b4 c000e420 00000000 00000000 b6e0c008 000211f0 000feb49 00000001
+[   26.275000] 9fc0: 00000000 00000000 b6e372b4 00000080 bebe5ca8 00000000 000feb49 00000000
+[   26.275000] 9fe0: bebe5970 bebe5960 0002aad0 b6ef6360 60000050 b6e0c008 e5843004 e2877001
+[   26.275000] [<c035bffc>] (register_netdevice) from [<c035c310>] (register_netdev+0x14/0x24)
+[   26.275000] [<c035c310>] (register_netdev) from [<bf00003c>] (fs4412_vnet_init+0x3c/0x70 [vnet])
+[   26.275000] [<bf00003c>] (fs4412_vnet_init [vnet]) from [<c00087b4>] (do_one_initcall+0x30/0x144)
+[   26.275000] [<c00087b4>] (do_one_initcall) from [<c0074fac>] (load_module+0x173c/0x1c68)
+[   26.275000] [<c0074fac>] (load_module) from [<c00755b4>] (SyS_init_module+0xdc/0xe0)
+[   26.275000] [<c00755b4>] (SyS_init_module) from [<c000e420>] (ret_fast_syscall+0x0/0x30)
+[   26.275000] Code: ebfff784 e2506000 ba000008 e5943108 (e5933000)
+[   26.550000] ---[ end trace 9c11f4df21d5a3ea ]---
+Segmentation fault
+
+   1、在register_netdevice 函数中加打印信息
+   
+        printk
+		
+   2、将地址转换为行号
+        注意地址的范围必须在0xc0008000 - 0xfffffff
+        在内核的顶层目录执行：
+		
+		arm-none-linux-gnueabi-addr2line -e  vmlinux    c035bffc  -f 
+		register_netdevice
+       /home/linux/Exynos4412/linux-3.14-fs4412/net/core/dev.c:5887
+	   
+	   5887     if (dev->netdev_ops->ndo_init) {                                                                      
+5888         ret = dev->netdev_ops->ndo_init(dev);
+5889         if (ret) {
+5890             if (ret > 0)
+5891                 ret = -EIO;
+5892             goto out;
+5893         }
+5894     }
+
+
+   3、反汇编
+      出现错误的位置register_netdevice
+	    vi  -t  register_netdevice
+		net/core/dev.c
+		
+		arm-none-linux-gnueabi-objdump   -S  net/core/dev.o   >1.txt
+        22972     if (dev->netdev_ops->ndo_init) {
+		22973     7f14:   e5943108    ldr r3, [r4, #264]  ; 0x108
+		22974     7f18:   e5933000    ldr r3, [r3] 
+
+		
+     
+  root@farsight ]# ping  2.2.2.3
+[   34.715000] Unable to handle kernel NULL pointer dereference at virtual address 00000000
+[   34.720000] pgd = ee2e4000
+[   34.725000] [00000000] *pgd=6e10c831, *pte=00000000, *ppte=00000000
+[   34.730000] Internal error: Oops: 80000007 [#1] PREEMPT SMP ARM
+[   34.735000] Modules linked in: vnet(O)
+[   34.740000] CPU: 2 PID: 1224 Comm: ping Tainted: G           O 3.14.0 #107
+[   34.745000] task: ee220b40 ti: ee2dc000 task.ti: ee2dc000
+[   34.750000] PC is at 0x0
+[   34.755000] LR is at dev_hard_start_xmit+0x2fc/0x4c8
+[   34.760000] pc : [<00000000>]    lr : [<c035ac5c>]    psr: 60000053
+[   34.760000] sp : ee2ddbf0  ip : 00000000  fp : ee26d800
+[   34.770000] r10: ee12b660  r9 : eead4100  r8 : ee9b9240
+[   34.775000] r7 : bf000134  r6 : bf000134  r5 : eead4100  r4 : ee9b9240
+[   34.780000] r3 : 00000000  r2 : c05db1ec  r1 : ee26d800  r0 : ee9b9240
+[   34.790000] Flags: nZCv  IRQs on  FIQs off  Mode SVC_32  ISA ARM  Segment user
+[   34.795000] Control: 10c5387d  Table: 6e2e404a  DAC: 00000015
+ 
+	 打印
+	 
+	 反汇编
+	   0x687c+0x2fc 
+	   0x6b78
+	   
+	      rc = ops->ndo_start_xmit(skb, dev);
+19769     6b64:   e59d601c    ldr r6, [sp, #28]
+19770     6b68:   e1a00004    mov r0, r4
+19771     6b6c:   e5963010    ldr r3, [r6, #16]
+19772     6b70:   e1a0100b    mov r1, fp
+19773     6b74:   e12fff33    blx r3
+19774         trace_net_dev_xmit(skb, rc, dev, skb_len);
+19775         if (rc == NETDEV_TX_OK)
+19776     6b78:   e2503000    subs    r3, r0, #0            
+
+            发包的函数
+          rc = ops->ndo_start_xmit(skb, dev);
+	 
+
+		  
+   [root@farsight ]# ping  6.6.65
+PING 6.6.65 (6.6.[   33.175000] Unable to handle kernel NULL pointer dereference at virtual address 00000000
+[   33.185000] pgd = ee2e0000
+[   33.185000] [00000000] *pgd=6e2d5831, *pte=00000000, *ppte=00000000
+[   33.190000] Internal error: Oops: 817 [#1] PREEMPT SMP ARM
+[   33.190000] Modules linked in: vnet(O)
+[   33.190000] CPU: 1 PID: 1225 Comm: ping Tainted: G           O 3.14.0 #107
+[   33.190000] task: ee983840 ti: ee306000 task.ti: ee306000
+[   33.190000] PC is at vndo_start_xmit+0x10/0x58 [vnet]
+[   33.190000] LR is at dev_hard_start_xmit+0x2fc/0x4c8
+[   33.190000] pc : [<bf000010>]    lr : [<c035ac5c>]    psr: 60000053
+[   33.190000] sp : ee307be0  ip : 00000000  fp : ee282000
+[   33.190000] r10: eeb11e60  r9 : ee919900  r8 : ee918900
+[   33.190000] r7 : bf0001b0  r6 : bf0001b0  r5 : ee919900  r4 : 00000000
+[   33.190000] r3 : 000003cc  r2 : 000000ff  r1 : ee282000  r0 : ee918900
+[   33.190000] Flags: nZCv  IRQs on  FIQs off  Mode SVC_32  ISA ARM  Segment user
+[   33.190000] Control: 10c5387d  Table: 6e2e004a  DAC: 00000015
+[   33.190000] Process ping (pid: 1225, stack limit = 0xee306240)
+[   33.190000] Stack: (0xee307be0 to 0xee308000)
+[   33.190000] 7be0: bf000000 ee918900 ee919900 c035ac5c ee918900 ee801e00 00000000 ee923c02
+[   33.190000] 7c00: 00004000 00000000 ee14c848 bf0001b0 ee282000 eeb11e00 ee919900 ee282000
+[   33.190000] 7c20: 00000001 ee918900 ee919900 eeb11e60 00000000 c0370ab8 ee919900 eeb11e00
+[   33.190000] 7c40: ee918900 eeb11e60 0000002a ee282000 00000000 c035b07c eeb11e60 ee91c300
+[   33.190000] 7c60: 0000002a 00000000 ee22f600 ee282000 00000000 41000606 06060606 00000000
+[   33.190000] 7c80: ee91c300 c03a7aac 06060606 00000000 ee14c848 00000000 ee9189c0 c0349a58
+[   33.190000] 7ca0: 00000000 ee9189c0 ee918b40 c0349afc 00000000 ee918b40 ee9189c0 ee22f600
+[   33.190000] 7cc0: ee9189c0 ee22f614 00000001 ee976e00 ee22f628 c0363248 000002c0 ee22f600
+[   33.190000] 7ce0: 00000001 c0364970 ffff2f8b ee918b40 ee22f600 00000000 ee22f600 ee976e00
+[   33.345000] 7d00: 00000000 c0364c34 ee290240 ee282000 ee918b40 ee282000 ee918b40 ee976e00
+[   33.345000] 7d20: ee22f600 ee976e00 00000000 c037fdbc ee918b40 41000606 ee918b40 c0609b80
+[   33.345000] 7d40: 00000000 ee307f5c ee976e00 c03800a0 00000040 c0381250 00000000 00000040
+[   33.345000] 7d60: ee290000 c03a1210 00000040 00000000 ee307df4 ee307e08 00000000 00000000
+[   33.345000] 7d80: c05da508 00000000 002052d0 c060fd04 00000002 c0080254 00000000 00000041
+[   33.345000] 7da0: c060f340 00000000 c05da508 000000d5 ee498ca0 000000d6 ee923790 000000c6
+[   33.345000] 7dc0: ee923790 c0083848 c060f340 00000001 00000000 00000003 00000001 00000000
+[   33.345000] 7de0: 00010000 00000000 06060606 41000606 00000008 41000606 00000000 00000000
+[   33.345000] 7e00: ffff0000 00000200 00000000 c0016298 4ffca59f ee290000 00000040 ee307f5c
+[   33.345000] 7e20: ee307e90 00000000 ee306000 00000000 00000000 c03ade5c ee307f5c ee983840
+[   33.345000] 7e40: ee72c000 00100ab0 0000001c c0342a1c 000000a8 000000c6 000ce000 00000040
+[   33.345000] 7e60: ee72c000 00000000 00000000 ee307f5c ee295210 00000000 ee0a81c0 ee2e0000
+[   33.345000] 7e80: ee2d5000 c00991bc 000000c6 000000a8 00000000 00000000 00000000 ee307e50
+[   33.345000] 7ea0: ee983840 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+[   33.345000] 7ec0: 00000000 00000000 00000040 00000040 001010f8 c0344798 000080d0 00000002
+[   33.345000] 7ee0: 41000606 00000000 00000000 00000000 00000000 00000000 ee307fb0 00000000
+[   33.345000] 7f00: 00000000 00000000 00000000 c00084a0 000038e0 00000008 ee306000 00000201
+[   33.345000] 7f20: ee983840 ee306000 ee983840 ee983840 00000000 c03fe3f4 ee983840 c002a7ac
+[   33.345000] 7f40: ee983840 ee72c000 eeb4bb00 c0634a40 05b3772e 000a93da 36004cee ee307edc
+[   33.345000] 7f60: 0000001c ee307f78 00000001 00000000 00000000 00000000 001010f8 00000040
+[   33.345000] 7f80: 00000000 00000000 bef42a18 00100ab0 0000001c 0003badc 00000122 c000e5a4
+[   33.345000] 7fa0: 00000000 c000e420 00100ab0 0000001c 00000000 001010f8 00000040 00000000
+[   33.345000] 7fc0: 00100ab0 0000001c 0003badc 00000122 00000000 00000000 00000000 00000000
+[   33.345000] 7fe0: bef42a10 bef42a04 000149f0 b6e9edb4 60000050 00000000 ffffffff ffffffff
+[   33.345000] [<bf000010>] (vndo_start_xmit [vnet]) from [<c035ac5c>] (dev_hard_start_xmit+0x2fc/0x4c8)
+[   33.345000] [<c035ac5c>] (dev_hard_start_xmit) from [<c0370ab8>] (sch_direct_xmit+0xc8/0x1f4)
+[   33.345000] [<c0370ab8>] (sch_direct_xmit) from [<c035b07c>] (__dev_queue_xmit+0x254/0x4d4)
+[   33.345000] [<c035b07c>] (__dev_queue_xmit) from [<c03a7aac>] (arp_solicit+0xec/0x1b0)
+[   33.345000] [<c03a7aac>] (arp_solicit) from [<c0363248>] (neigh_probe+0x50/0x78)
+[   33.345000] [<c0363248>] (neigh_probe) from [<c0364970>] (__neigh_event_send+0xb8/0x260)
+[   33.345000] [<c0364970>] (__neigh_event_send) from [<c0364c34>] (neigh_resolve_output+0x11c/0x1a4)
+[   33.345000] [<c0364c34>] (neigh_resolve_output) from [<c037fdbc>] (ip_finish_output+0x25c/0x470)
+[   33.345000] [<c037fdbc>] (ip_finish_output) from [<c03800a0>] (ip_local_out+0x28/0x2c)
+[   33.345000] [<c03800a0>] (ip_local_out) from [<c0381250>] (ip_send_skb+0x10/0x90)
+[   33.345000] [<c0381250>] (ip_send_skb) from [<c03a1210>] (raw_sendmsg+0x78c/0x838)
+[   33.345000] [<c03a1210>] (raw_sendmsg) from [<c03ade5c>] (inet_sendmsg+0x90/0xb4)
+[   33.345000] [<c03ade5c>] (inet_sendmsg) from [<c0342a1c>] (sock_sendmsg+0x8c/0xac)
+[   33.345000] [<c0342a1c>] (sock_sendmsg) from [<c0344798>] (SyS_sendto+0xb4/0xd8)
+[   33.345000] [<c0344798>] (SyS_sendto) from [<c000e420>] (ret_fast_syscall+0x0/0x30)
+[   33.345000] Code: e92d4038 e3a020ff e3a04000 e30033cc (e5842000)
+[   33.670000] ---[ end trace 5bbc8488b68f739d ]---
+[   33.675000] Kernel panic - not syncing: Fatal exception in interrupt
+[   33.680000] CPU0: stopping
+[   33.680000] CPU: 0 PID: 0 Comm: swapper/0 Tainted: G      D    O 3.14.0 #107
+[   33.680000] [<c0013e10>] (unwind_backtrace) from [<c0011240>] (show_stack+0x10/0x14)
+[   33.680000] [<c0011240>] (show_stack) from [<c03f9370>] (dump_stack+0x64/0xb4)
+[   33.680000] [<c03f9370>] (dump_stack) from [<c00131bc>] (handle_IPI+0x154/0x180)
+[   33.680000] [<c00131bc>] (handle_IPI) from [<c0008568>] (gic_handle_irq+0x60/0x68)
+[   33.680000] [<c0008568>] (gic_handle_irq) from [<c0011d40>] (__irq_svc+0x40/0x70)
+[   33.680000] Exception stack(0xc05d3f68 to 0xc05d3fb0)
+[   33.680000] 3f60:                   00000000 00000000 00003018 00000000 c05d2000 c05da494
+[   33.680000] 3f80: c0401b30 c060fdd9 c060fdd9 413fc090 00000001 00000000 f8500320 c05d3fb0
+[   33.680000] 3fa0: c000eff4 c000eff8 60000153 ffffffff
+[   33.680000] [<c0011d40>] (__irq_svc) from [<c000eff8>] (arch_cpu_idle+0x28/0x30)
+[   33.680000] [<c000eff8>] (arch_cpu_idle) from [<c00589c0>] (cpu_startup_entry+0x9c/0x138)
+[   33.680000] [<c00589c0>] (cpu_startup_entry) from [<c0597af4>] (start_kernel+0x368/0x3c4)
+[   33.680000] CPU2: stopping
+[   33.680000] CPU: 2 PID: 0 Comm: swapper/2 Tainted: G      D    O 3.14.0 #107
+[   33.680000] [<c0013e10>] (unwind_backtrace) from [<c0011240>] (show_stack+0x10/0x14)
+[   33.680000] [<c0011240>] (show_stack) from [<c03f9370>] (dump_stack+0x64/0xb4)
+[   33.680000] [<c03f9370>] (dump_stack) from [<c00131bc>] (handle_IPI+0x154/0x180)
+[   33.680000] [<c00131bc>] (handle_IPI) from [<c0008568>] (gic_handle_irq+0x60/0x68)
+[   33.680000] [<c0008568>] (gic_handle_irq) from [<c0011d40>] (__irq_svc+0x40/0x70)
+[   33.680000] Exception stack(0xee8cbfa0 to 0xee8cbfe8)
+[   33.680000] bfa0: 00000002 00000000 000036a4 00000000 ee8ca000 c05da494 c0401b30 c060fdd9
+[   33.680000] bfc0: c060fdd9 413fc090 00000001 00000000 c05e1180 ee8cbfe8 c000eff4 c000eff8
+[   33.680000] bfe0: 60000053 ffffffff
+[   33.680000] [<c0011d40>] (__irq_svc) from [<c000eff8>] (arch_cpu_idle+0x28/0x30)
+[   33.680000] [<c000eff8>] (arch_cpu_idle) from [<c00589c0>] (cpu_startup_entry+0x9c/0x138)
+[   33.680000] [<c00589c0>] (cpu_startup_entry) from [<40008604>] (0x40008604)
+[   33.680000] CPU3: stopping
+[   33.680000] CPU: 3 PID: 0 Comm: swapper/3 Tainted: G      D    O 3.14.0 #107
+[   33.680000] [<c0013e10>] (unwind_backtrace) from [<c0011240>] (show_stack+0x10/0x14)
+[   33.680000] [<c0011240>] (show_stack) from [<c03f9370>] (dump_stack+0x64/0xb4)
+[   33.680000] [<c03f9370>] (dump_stack) from [<c00131bc>] (handle_IPI+0x154/0x180)
+[   33.680000] [<c00131bc>] (handle_IPI) from [<c0008568>] (gic_handle_irq+0x60/0x68)
+[   33.680000] [<c0008568>] (gic_handle_irq) from [<c0011d40>] (__irq_svc+0x40/0x70)
+[   33.680000] Exception stack(0xee8cdfa0 to 0xee8cdfe8)
+[   33.680000] dfa0: 00000003 00000000 0000311a 00000000 ee8cc000 c05da494 c0401b30 c060fdd9
+[   33.680000] dfc0: c060fdd9 413fc090 00000001 00000000 c05e1180 ee8cdfe8 c000eff4 c000eff8
+[   33.680000] dfe0: 60000053 ffffffff
+[   33.680000] [<c0011d40>] (__irq_svc) from [<c000eff8>] (arch_cpu_idle+0x28/0x30)
+[   33.680000] [<c000eff8>] (arch_cpu_idle) from [<c00589c0>] (cpu_startup_entry+0x9c/0x138)
+[   33.680000] [<c00589c0>] (cpu_startup_entry) from [<40008604>] (0x40008604)
+
+
+
+ping  
+   sendto 
+      SyS_sendto  
+          sock_sendmsg
+             	inet_sendmsg
+                       raw_sendmsg	
+                             ip_send_skb   
+                                 ip_local_out	
+                                      ip_finish_output	 
+                                           neigh_resolve_output	
+                                               __neigh_event_send	
+                                                   neigh_probe	
+                                                       arp_solicit	
+                                                           __dev_queue_xmit	
+                                                                  sch_direct_xmit	
+                                                                        dev_hard_start_xmit	
+                                                                            vndo_start_xmit	  驱动中的发包函数																	
+	  
+   	  
+
+	
+
+     
+	 

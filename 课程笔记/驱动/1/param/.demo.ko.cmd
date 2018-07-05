@@ -1,0 +1,1 @@
+cmd_/home/linux/teach/18031/driver/1/param/demo.ko := ld -r -m elf_i386 -T /usr/src/linux-headers-3.5.0-23-generic/scripts/module-common.lds --build-id  -o /home/linux/teach/18031/driver/1/param/demo.ko /home/linux/teach/18031/driver/1/param/demo.o /home/linux/teach/18031/driver/1/param/demo.mod.o

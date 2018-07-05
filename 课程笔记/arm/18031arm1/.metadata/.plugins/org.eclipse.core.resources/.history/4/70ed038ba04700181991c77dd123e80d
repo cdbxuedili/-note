@@ -1,0 +1,50 @@
+
+
+/*
+6.2.3.194 GPX0CON
+  Base Address: 0x1100_0000
+  Address = Base Address + 0x0C00, Reset Value = 0x0000_0000
+Name  Bit  Type  Description  Reset Value
+GPX0CON[7]  [31:28]  RW
+0x0 = Input
+0x1 = Output
+0x2 = Reserved
+0x3 = Reserved
+0x4 = Reserved
+0x5 = ALV_DBG[3]
+0x6 to 0xE = Reserved
+0xF = WAKEUP_INT
+
+*/
+
+
+.text
+.globl _start
+_start:
+	nop
+/*
+	ldr r0,a
+	bic r0,r0,#0x000000ff
+	str r0,a
+*/
+	ldr r0,=0x11000c00
+	ldr r1,[r0]
+	bic r1,r1,#0x0000000f
+	orr r1,r1,#0x00000001
+	str r1,[r0]
+
+
+
+
+
+
+
+_stop:
+	b _stop
+
+
+a:
+	.word
+
+
+
